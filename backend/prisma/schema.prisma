@@ -32,4 +32,31 @@ model Project {
   owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  nodes FileNode[]
+}
+
+model FileNode {
+  id      String   @id @default(uuid())
+  name    String
+  type    NodeType
+  content String?  @db.Text
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  parentId String?
+  parent   FileNode?  @relation("NodeHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children FileNode[] @relation("NodeHierarchy")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([parentId])
+}
+
+enum NodeType {
+  FILE
+  FOLDER
 }
