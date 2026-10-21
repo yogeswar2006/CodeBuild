@@ -1,13 +1,22 @@
 import express from "express"
 import prisma from "./lib/prisma.js"
+import authRouter from './routes/auth.routes.js'
+import cookieParser from 'cookie-parser'
+import projectRouter from "./routes/project.routes.js"
 
 const app= express();
 
 app.use(express.json());
+app.use(cookieParser());
 
-app.get('/', (req, res) => {
-  res.send('Code Editor API is running');
-});
+
+// routes
+app.use('/api/auth',authRouter)
+app.use("/api/projects",projectRouter)
+
+// app.get('/', (req, res) => {
+//   res.send('Code Editor API is running');
+// });
 
 app.get('/health/db', async (req, res) => {
   try {
