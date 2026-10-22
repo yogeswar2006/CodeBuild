@@ -8,8 +8,8 @@ router.use(ProtectedRoute)
 router.post("/create",projectController.createProject);
 router.get("/fetch",projectController.getAllCurrentUserProjects);
 router.get("/fetch/:id",projectController.getProjectById);
-router.patch("/update/:id",projectController.updateProject);
-router.delete("/delete/:id",projectController.deleteProject);
+router.patch("/update/:id",projectController.updateProject);  // implement later
+router.delete("/delete/:id",projectController.deleteProject); // implement later
 
 router.post("/create/filenode",projectController.createFileNode);
 router.get("/:projectId/tree",projectController.getProjectHeirarchy);

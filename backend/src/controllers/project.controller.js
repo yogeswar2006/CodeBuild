@@ -194,26 +194,6 @@ const deleteProject = async (req, res) => {
   }
 };
 
-// model FileNode {
-//   id      String   @id @default(uuid())
-//   name    String
-//   type    NodeType
-//   content String?  @db.Text
-
-//   projectId String
-//   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-//   parentId String?
-//   parent   FileNode?  @relation("NodeHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
-//   children FileNode[] @relation("NodeHierarchy")
-
-//   createdAt DateTime @default(now())
-//   updatedAt DateTime @updatedAt
-
-//   @@index([projectId])
-//   @@index([parentId])
-// }
-
 
 const createFileNode = async (req, res) => {
   try {
@@ -451,8 +431,29 @@ const updateFileContent = async (req, res) => {
       });
     }
 
+     const file = await prisma.fileNode.findFirst({
+      where: {
+        id: fileId,
+        projectId,
+        type: "FILE",
+        project: {
+          ownerId: req.user.id
+        }
+      },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        content: true,
+        projectId: true,
+        parentId: true,
+        updatedAt: true
+      }
+    });
+
     return res.status(200).json({
-      message: "File saved successfully"
+      message: "File saved successfully",
+      file
     });
   } catch (error) {
     console.error("Error saving file:", error);
