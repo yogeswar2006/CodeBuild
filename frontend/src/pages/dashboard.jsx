@@ -128,10 +128,10 @@ export default function Dashboard() {
         <>
           <aside
             style={{ width: sidebarWidth }}
-            className="flex shrink-0 flex-col overflow-hidden border-r border-[#2b2b2b] bg-[#252526]"
+            className="flex shrink-0 flex-col rounded-2xl overflow-hidden border-r border-[#2b2b2b] bg-[#181818]"
           >
             <div className="flex h-[35px] shrink-0 items-center justify-between px-3">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-[#bbbbbb]">
+              <span className="text-[12px] font-medium uppercase tracking-wide text-[#bbbbbb]">
                 {activeView === "explorer" ? "Explorer" : "Search"}
               </span>
 

@@ -18,10 +18,39 @@ const KEYWORDS = {
   rust: "fn let mut const struct enum impl trait pub use mod match if else for while loop return self Self Some None Ok Err Vec String Option Result println! true false".split(" "),
 };
 
+const AYU_THEME = {
+  base: "vs-dark",
+  inherit: true,
+  rules: [
+    { token: "", foreground: "BFBDB6", background: "0A0E14" },
+    { token: "comment", foreground: "5C6773", fontStyle: "italic" },
+    { token: "keyword", foreground: "FF8F40" },
+    { token: "string", foreground: "AAD94C" },
+    { token: "number", foreground: "D2A6FF" },
+    { token: "type", foreground: "59C2FF" },
+    { token: "identifier", foreground: "BFBDB6" },
+    { token: "delimiter", foreground: "BFBDB6" },
+    { token: "operator", foreground: "F29668" },
+  ],
+  colors: {
+    "editor.background": "#0A0E14",
+    "editor.foreground": "#BFBDB6",
+    "editorLineNumber.foreground": "#4D5566",
+    "editorLineNumber.activeForeground": "#BFBDB6",
+    "editorCursor.foreground": "#FFCC66",
+    "editor.selectionBackground": "#253340",
+    "editor.lineHighlightBackground": "#0D1017",
+    "editorIndentGuide.background": "#1C2433",
+    "editorIndentGuide.activeBackground": "#3D4757",
+  },
+};
+
 let configured = false;
 function configureMonaco(monaco) {
+  monaco.editor.defineTheme("ayu", AYU_THEME);
   if (configured) return;
   configured = true;
+  
 
   const ts = monaco.languages.typescript;
   if (ts) {
@@ -65,7 +94,8 @@ function configureMonaco(monaco) {
 
 const EDITOR_OPTIONS = {
   fontSize: 14,
-  fontFamily: "'Cascadia Code', 'Fira Code', Menlo, Consolas, monospace",
+  // fontFamily: "'Cascadia Code', 'Fira Code', Menlo, Consolas, monospace",
+    fontFamily: "'JetBrains Mono', monospace",
   fontLigatures: true,
   minimap: { enabled: true },
   automaticLayout: true, // follows the sidebar being resized
@@ -96,12 +126,12 @@ function Welcome({ hasProject }) {
   return (
     <div className="flex h-full items-center justify-center overflow-y-auto p-8">
       <div className="w-full max-w-md">
-        <Code2 size={72} strokeWidth={1.2} className="mb-6 text-[#7BE5C4]/25" />
-        <h2 className="text-2xl font-light text-[#e7e7e7]">CodeSpace</h2>
+        
+        <h2 className="text-2xl font-bold text-[#e7e7e7]">CodeSpace</h2>
         <p className="mt-1 text-sm text-[#8b949e]">Your code, saved as you type.</p>
 
         <h3 className="mb-2 mt-9 text-sm font-medium text-[#cccccc]">Start</h3>
-        <ul className="space-y-1.5 text-sm text-[#7BE5C4]">
+        <ul className="space-y-1.5 text-sm text-[#27CCF5]">
           <li>{hasProject ? "Pick a file in the explorer to open it" : "Create or select a project on the left"}</li>
           <li>Use the file and folder icons above the tree to add new items</li>
           <li>Select a folder first to create inside it</li>
@@ -214,7 +244,7 @@ export default function EditorPane({ ws }) {
               language={getLanguage(buf.name)}
               value={buf.content}
               onChange={(value) => ws.change(ws.activeId, value ?? "")}
-              theme="vs-dark"
+              theme="ayu"
               options={EDITOR_OPTIONS}
               beforeMount={configureMonaco}
               onMount={handleMount}

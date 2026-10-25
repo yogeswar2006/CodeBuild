@@ -1,7 +1,13 @@
 @import "tailwindcss";
 
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+
 
 :root {
+   font-family: "Inter", sans-serif;
   color-scheme: dark;
 
   --vscode-editor: #1e1e1e;
@@ -25,8 +31,7 @@
   --vscode-link: #4fc1ff;
   --vscode-success: #4ec9b0;
 
-  --vscode-font: -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  --vscode-font: "Inter", sans-serif;
   --vscode-mono: "Cascadia Code", Consolas, "Courier New",
     monospace;
 
@@ -53,7 +58,7 @@ body,
 body {
   background: var(--vscode-editor);
   color: var(--vscode-text);
-  font-family: var(--vscode-font);
+   font-family: "Inter", sans-serif;
   font-size: 13px;
 }
 
@@ -67,4 +72,14 @@ button {
 
 ::selection {
   background: #264f78;
+}
+
+/* Apply Inter throughout the application */
+body,
+#root,
+button,
+input,
+textarea,
+select {
+  font-family: "Inter", sans-serif;
 }
