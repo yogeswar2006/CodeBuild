@@ -52,19 +52,52 @@ export const useProjectStore = create((set, get) => ({
   },
 
   // GET: Fetch a project's complete file tree
-  getProjectTree: async (projectId) => {
-    try {
-      const res = await api.get(`/projects/${projectId}/tree`);
+ 
+getProjectTree: async (projectId) => {
+  try {
+    const res = await api.get(`/projects/${projectId}/tree`);
 
-      return res.data.tree ?? res.data;
-    } catch (error) {
-      set({
-        error: error.response?.data?.message || "Failed to fetch project files",
-      });
+    const tree = res.data.tree ?? res.data;
 
-      throw error;
+    if (!Array.isArray(tree)) {
+      throw new Error("Invalid project tree response");
     }
-  },
+
+    // Convert nested children into the flat structure Explorer expects.
+    const flattenTree = (nodes, parentId = null) => {
+      const result = [];
+
+      for (const node of nodes) {
+        const { children = [], ...data } = node;
+
+        result.push({
+          ...data,
+          id: node.id ?? node._id,
+          parentId: node.parentId ?? parentId,
+          type: node.type?.toLowerCase(),
+        });
+
+        if (Array.isArray(children) && children.length > 0) {
+          result.push(...flattenTree(children, node.id ?? node._id));
+        }
+      }
+
+      return result;
+    };
+
+    return flattenTree(tree);
+  } catch (error) {
+    set({
+      error:
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to fetch project files",
+    });
+
+    throw error;
+  }
+},
+
 
   // POST: Create a file or folder inside a project
  createFileNode: async (
@@ -110,6 +143,7 @@ export const useProjectStore = create((set, get) => ({
 
   // PATCH: Save the latest file content
 
+
 saveFile: async (fileId, content, projectId) => {
   if (!projectId || !fileId) {
     throw new Error("Project ID and file ID are required to save");
@@ -121,8 +155,14 @@ saveFile: async (fileId, content, projectId) => {
       { content }
     );
 
-    return res.data.filenode ?? res.data.file ?? res.data;
+    return res.data.file;
   } catch (error) {
+    console.error("Save API error:", {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    });
+
     set({
       error: error.response?.data?.message || "Failed to save file",
     });
@@ -130,5 +170,6 @@ saveFile: async (fileId, content, projectId) => {
     throw error;
   }
 },
+
 
 }));

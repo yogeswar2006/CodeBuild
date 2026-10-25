@@ -42,21 +42,33 @@ export default function useWorkspace() {
  
 const save = useCallback(
   async (id) => {
+
     clearTimeout(timers.current[id]);
     delete timers.current[id];
 
     const buf = buffersRef.current[id];
 
+    console.log("save() called", {
+  id,
+  dirty: buffersRef.current[id]?.dirty,
+  loaded: buffersRef.current[id]?.loaded,
+});
+
     if (!buf || !buf.dirty || !buf.loaded) return;
+    
 
     if (!buf.projectId) {
       console.error("Cannot save: missing project ID", { id, buf });
       patch(id, { status: "error" });
+      toast.error(`Cannot save ${buf.name}: missing project ID`);
       return;
     }
 
+    // Avoid overlapping saves for the same file.
+    if (buf.saving) return;
+
     const snapshot = buf.content;
-    patch(id, { status: "saving" });
+    patch(id, { saving: true, status: "saving" });
 
     try {
       await saveFile(id, snapshot, buf.projectId);
@@ -65,9 +77,17 @@ const save = useCallback(
       if (!current) return;
 
       if (current.content === snapshot) {
-        patch(id, { dirty: false, status: "saved" });
+        patch(id, {
+          dirty: false,
+          saving: false,
+          status: "saved",
+        });
       } else {
-        patch(id, { status: "unsaved" });
+        patch(id, {
+          saving: false,
+          dirty: true,
+          status: "unsaved",
+        });
 
         timers.current[id] = setTimeout(
           () => save(id),
@@ -81,7 +101,8 @@ const save = useCallback(
         error.response?.data || error
       );
 
-      patch(id, { status: "error" });
+      patch(id, { saving: false, status: "error" });
+
       toast.error(
         error.response?.data?.message || `Could not save ${buf.name}`
       );
@@ -89,6 +110,7 @@ const save = useCallback(
   },
   [patch, saveFile]
 );
+
 
 
   const change = useCallback(
@@ -240,6 +262,7 @@ const openFile = useCallback(
         loaded: false,
         dirty: false,
         status: "saved",
+         projectId,
       },
       true
     );
@@ -295,23 +318,13 @@ const openFile = useCallback(
 
 const createNode = useCallback(
   async (name, type, parentId = null) => {
-    if (typeof name !== "string" || !name.trim()) {
-      toast.error("Please enter a file or folder name");
-      return;
-    }
-
-    if (!projectId) {
-      toast.error("Please select a project first");
-      return;
-    }
-
-    const normalizedType = type.toUpperCase();
+    if (!projectId) return;
 
     try {
       const node = await createFileNode(projectId, {
         name: name.trim(),
-        type: normalizedType,
-        parentId,
+        type: type.toUpperCase(),
+        parentId, // Must be the selected folder's ID
         content: "",
       });
 
@@ -323,6 +336,7 @@ const createNode = useCallback(
       };
 
       setTree((prev) => [...prev, normalizedNode]);
+
       return normalizedNode;
     } catch (error) {
       toast.error(

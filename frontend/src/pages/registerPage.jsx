@@ -40,7 +40,7 @@ function getStrength(password) {
 
 export default function RegisterPage() {
   
-  const { signup,isSigningUp  } = useAuthStore();
+  const { signUp,isSigningUp  } = useAuthStore();
   const navigate = useNavigate();
 
   const [form, setForm] = useState({
@@ -62,7 +62,7 @@ export default function RegisterPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!form.fullName.trim() || !form.email.trim() || !form.password) {
+    if (!form.username.trim() || !form.email.trim() || !form.password) {
       toast.error("Please fill in all the fields.");
       return;
     }
@@ -77,8 +77,8 @@ export default function RegisterPage() {
 
     try {
       
-      await register({
-        username: form.fullName.trim(),
+      await signUp({
+        username: form.username.trim(),
         email: form.email.trim(),
         password: form.password,
       });
@@ -86,7 +86,9 @@ export default function RegisterPage() {
       toast.success("Account created!");
       navigate("/dashboard", { replace: true });
     } catch (error) {
+      console.log("erorr at register",error)
       toast.error(
+        
         error.response?.data?.message || "Sign up failed. Please try again."
       );
     }
@@ -124,7 +126,7 @@ export default function RegisterPage() {
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-5">
             <div>
-              <label htmlFor="fullName" className={labelClass}>
+              <label htmlFor="username" className={labelClass}>
                 Username
               </label>
               <div className={fieldWrap}>
