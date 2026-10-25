@@ -138,15 +138,26 @@ const STATUS = {
   error: ["Save failed", "#FF7F6E"],
 };
 
-export default function EditorPane({ ws }) {
+export default function EditorPane({ ws }) { 
   const saveRef = useRef(() => {});
   const buf = ws.buffers[ws.activeId];
   saveRef.current = () => ws.activeId && ws.save(ws.activeId);
 
   const handleMount = (editor, monaco) => {
-    // Ctrl/Cmd + S saves immediately instead of waiting for the idle timer
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveRef.current());
-  };
+  editor.addCommand(
+    monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
+    () => {
+      console.log("Ctrl+S triggered", {
+        activeId: ws.activeId,
+        buffer: ws.buffers[ws.activeId],
+      });
+
+      if (ws.activeId) {
+        ws.save(ws.activeId);
+      }
+    }
+  );
+};
 
   const [statusText, statusColor] = (buf && STATUS[buf.status]) || [];
 

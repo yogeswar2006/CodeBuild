@@ -4,7 +4,7 @@ import prisma from "../lib/prisma.js"
 
 const createProject = async (req, res) => {
 
-  try {
+  try { 
     const { name, description } = req.body;
 
     if (typeof name !== 'string' || !name.trim()) {
