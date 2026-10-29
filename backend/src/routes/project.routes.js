@@ -2,20 +2,29 @@ import express from "express";
 import projectController from "../controllers/project.controller.js";
 import ProtectedRoute from "../middlewares/auth.middleware.js";
 
-const router= express.Router();
-router.use(ProtectedRoute)
+const router = express.Router();
+router.use(ProtectedRoute);
 
-router.post("/create",projectController.createProject);
-router.get("/fetch",projectController.getAllCurrentUserProjects);
-router.get("/fetch/:id",projectController.getProjectById);
-router.patch("/update/:id",projectController.updateProject);  // implement later
-router.delete("/delete/:id",projectController.deleteProject); // implement later
+// Projects
+router.get("/", projectController.getAllCurrentUserProjects);
+router.post("/", projectController.createProject);
+router.get("/:projectId", projectController.getProjectById);
+router.patch("/:projectId", projectController.updateProject);
+router.delete("/:projectId", projectController.deleteProject);
 
-router.post("/create/filenode",projectController.createFileNode);
-router.get("/:projectId/tree",projectController.getProjectHeirarchy);
-router.get("/:projectId/files/:fileId",projectController.getFileContent)
-router.patch("/:projectId/files/:fileId",projectController.updateFileContent)
+// File explorer
+router.get("/:projectId/tree", projectController.getProjectHeirarchy);
 
+// Files and folders inside a project (identified by ?path= or body path)
+router.post("/:projectId/nodes", projectController.createFileNode);
+router.patch("/:projectId/nodes", projectController.renameNode);
+router.delete("/:projectId/nodes", projectController.deleteNode);
 
-export default router
+// File content
+router.get("/:projectId/file", projectController.getFileContent);
+router.put("/:projectId/file", projectController.updateFileContent);
 
+router.post("/:projectId/search", projectController.searchFiles);
+router.post("/:projectId/replace", projectController.replaceInFiles);
+
+export default router;

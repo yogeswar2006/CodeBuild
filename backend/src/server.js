@@ -4,6 +4,7 @@ import authRouter from './routes/auth.routes.js'
 import cookieParser from 'cookie-parser'
 import projectRouter from "./routes/project.routes.js"
 import cors from "cors"
+import { attachTerminal } from "./lib/terminal.js"
 const app= express();
 
 
@@ -38,6 +39,7 @@ app.get('/health/db', async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+const server=app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+attachTerminal(server)

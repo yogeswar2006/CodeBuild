@@ -1,10 +1,10 @@
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useProjectStore } from "../store/useProjectStore";
 
 export const AUTOSAVE_MS = 5000;
 
+// In this hook, a file's "id" is its relative path, e.g. "src/components/Button.jsx".
 export default function useWorkspace() {
   const {
     projects,
@@ -16,6 +16,8 @@ export default function useWorkspace() {
     getFile,
     saveFile,
   } = useProjectStore();
+
+  const [reveal, setReveal] = useState(null); // { path, line, column, length, n }
 
   const [projectId, setProjectId] = useState(null);
   const [tree, setTree] = useState([]);
@@ -30,201 +32,135 @@ export default function useWorkspace() {
 
   const patch = useCallback((id, values, create = false) => {
     if (!create && !buffersRef.current[id]) return;
-
     buffersRef.current = {
       ...buffersRef.current,
       [id]: { ...buffersRef.current[id], ...values },
     };
-
     setBuffers(buffersRef.current);
   }, []);
 
- 
-const save = useCallback(
-  async (id) => {
+  const save = useCallback(
+    async (id) => {
+      clearTimeout(timers.current[id]);
+      delete timers.current[id];
 
-    clearTimeout(timers.current[id]);
-    delete timers.current[id];
+      const buf = buffersRef.current[id];
+      if (!buf || !buf.dirty || !buf.loaded) return;
 
-    const buf = buffersRef.current[id];
-
-    console.log("save() called", {
-  id,
-  dirty: buffersRef.current[id]?.dirty,
-  loaded: buffersRef.current[id]?.loaded,
-});
-
-    if (!buf || !buf.dirty || !buf.loaded) return;
-    
-
-    if (!buf.projectId) {
-      console.error("Cannot save: missing project ID", { id, buf });
-      patch(id, { status: "error" });
-      toast.error(`Cannot save ${buf.name}: missing project ID`);
-      return;
-    }
-
-    // Avoid overlapping saves for the same file.
-    if (buf.saving) return;
-
-    const snapshot = buf.content;
-    patch(id, { saving: true, status: "saving" });
-
-    try {
-      await saveFile(id, snapshot, buf.projectId);
-
-      const current = buffersRef.current[id];
-      if (!current) return;
-
-      if (current.content === snapshot) {
-        patch(id, {
-          dirty: false,
-          saving: false,
-          status: "saved",
-        });
-      } else {
-        patch(id, {
-          saving: false,
-          dirty: true,
-          status: "unsaved",
-        });
-
-        timers.current[id] = setTimeout(
-          () => save(id),
-          AUTOSAVE_MS
-        );
+      if (!buf.projectId) {
+        patch(id, { status: "error" });
+        toast.error(`Cannot save ${buf.name}: missing project ID`);
+        return;
       }
-    } catch (error) {
-      console.error(
-        "Save failed:",
-        error.response?.status,
-        error.response?.data || error
-      );
 
-      patch(id, { saving: false, status: "error" });
+      if (buf.saving) return; // avoid overlapping saves
 
-      toast.error(
-        error.response?.data?.message || `Could not save ${buf.name}`
-      );
-    }
-  },
-  [patch, saveFile]
-);
+      const snapshot = buf.content;
+      patch(id, { saving: true, status: "saving" });
 
+      try {
+        await saveFile(buf.projectId, id, snapshot); // id === path
 
+        const current = buffersRef.current[id];
+        if (!current) return;
+
+        if (current.content === snapshot) {
+          patch(id, { dirty: false, saving: false, status: "saved" });
+        } else {
+          // user kept typing while the request was in flight
+          patch(id, { saving: false, dirty: true, status: "unsaved" });
+          timers.current[id] = setTimeout(() => save(id), AUTOSAVE_MS);
+        }
+      } catch (error) {
+        patch(id, { saving: false, status: "error" });
+        toast.error(error.response?.data?.message || `Could not save ${buf.name}`);
+      }
+    },
+    [patch, saveFile]
+  );
 
   const change = useCallback(
     (id, content) => {
       const buf = buffersRef.current[id];
-
       if (!buf || !buf.loaded || buf.content === content) return;
 
-      patch(id, {
-        content,
-        dirty: true,
-        status: "unsaved",
-      });
+      patch(id, { content, dirty: true, status: "unsaved" });
 
       clearTimeout(timers.current[id]);
-      timers.current[id] = setTimeout(
-        () => save(id),
-        AUTOSAVE_MS
-      );
+      timers.current[id] = setTimeout(() => save(id), AUTOSAVE_MS);
     },
     [patch, save]
   );
 
- const flushAll = useCallback(async () => {
-  await Promise.all(
-    Object.keys(buffersRef.current).map((id) => save(id))
-  );
-}, [save]);
+  const flushAll = useCallback(async () => {
+    await Promise.all(Object.keys(buffersRef.current).map((id) => save(id)));
+  }, [save]);
 
   // Load projects on mount.
   useEffect(() => {
     let cancelled = false;
-
     (async () => {
       try {
         const list = await getProjects();
-
         if (!cancelled && Array.isArray(list) && list.length) {
-          setProjectId(list[0].id);
           projectIdRef.current = list[0].id;
+          setProjectId(list[0].id);
         }
       } catch {
         if (!cancelled) toast.error("Could not load projects");
       }
     })();
-
     return () => {
       cancelled = true;
     };
   }, [getProjects]);
 
-  // Load the selected project's file tree.
- useEffect(() => {
-  if (!projectId) {
-    setTree([]);
-    return;
-  }
-
-  let cancelled = false;
-  setTree([]);
-
-  getProjectTree(projectId)
-    .then((nodes) => {
-      if (!cancelled) {
-        setTree(
-          nodes.map((node) => ({
-            ...node,
-            id: node.id ?? node._id,
-            parentId: node.parentId ?? null,
-            type: node.type?.toLowerCase(),
-          }))
-        );
+  // (Re)load the file tree. Also used after the terminal changes files on disk.
+  const refreshTree = useCallback(
+    async (id = projectIdRef.current) => {
+      if (!id) return;
+      try {
+        const nodes = await getProjectTree(id);
+        if (projectIdRef.current === id) setTree(nodes); // ignore stale responses
+      } catch {
+        toast.error("Could not load files");
       }
-    })
-    .catch(() => {
-      if (!cancelled) toast.error("Could not load files");
-    });
+    },
+    [getProjectTree]
+  );
 
-  return () => {
-    cancelled = true;
-  };
-}, [projectId, getProjectTree]);
-
- const selectProject = useCallback(
-  async (id) => {
-    if (id === projectIdRef.current) return;
-
-    await flushAll();
-
-    Object.values(timers.current).forEach(clearTimeout);
-    timers.current = {};
-
-    buffersRef.current = {};
-    setBuffers({});
-    setTabs([]);
-    setActiveId(null);
+  useEffect(() => {
     setTree([]);
+    if (projectId) refreshTree(projectId);
+  }, [projectId, refreshTree]);
 
-    projectIdRef.current = id;
-    setProjectId(id);
-  },
-  [flushAll]
-);
+  const selectProject = useCallback(
+    async (id) => {
+      if (id === projectIdRef.current) return;
+
+      await flushAll();
+
+      Object.values(timers.current).forEach(clearTimeout);
+      timers.current = {};
+
+      buffersRef.current = {};
+      setBuffers({});
+      setTabs([]);
+      setActiveId(null);
+      setTree([]);
+
+      projectIdRef.current = id;
+      setProjectId(id);
+    },
+    [flushAll]
+  );
 
   const addProject = useCallback(
-    async (name) => {
+    async (data) => {
       try {
-        const project = await createProject(name);
-
-        if (!project?.id) {
-          throw new Error("Created project has no id");
-        }
-
-        selectProject(project.id);
+        const project = await createProject(data);
+        if (!project?.id) throw new Error("Created project has no id");
+        await selectProject(project.id);
         toast.success("Project created");
         return true;
       } catch {
@@ -235,70 +171,85 @@ const save = useCallback(
     [createProject, selectProject]
   );
 
+  const openFile = useCallback(
+    async (node) => {
+      if (!node || node.type !== "file" || !node.id || !projectId) {
+        toast.error("Invalid file or project");
+        return;
+      }
 
-const openFile = useCallback(
-  async (node) => {
-    if (!node || node.type?.toLowerCase() !== "file" || !node.id || !projectId) {
-      toast.error("Invalid file or project ID");
-      return;
-    }
+      setTabs((current) => (current.includes(node.id) ? current : [...current, node.id]));
+      setActiveId(node.id);
 
-    setTabs((current) =>
-      current.includes(node.id) ? current : [...current, node.id]
-    );
+      if (buffersRef.current[node.id]?.loaded) return;
+      if (loadingFiles.current.has(node.id)) return;
 
-    setActiveId(node.id);
+      loadingFiles.current.add(node.id);
 
-    if (buffersRef.current[node.id]?.loaded) return;
-    if (loadingFiles.current.has(node.id)) return;
-
-    loadingFiles.current.add(node.id);
-
-    patch(
-      node.id,
-      {
-        name: node.name,
-        content: "",
-        loaded: false,
-        dirty: false,
-        status: "saved",
-         projectId,
-      },
-      true
-    );
-
-    try {
-      const file = await getFile(projectId, node.id);
-
-      if (!buffersRef.current[node.id]) return;
-
-      patch(node.id, {
-        name: file.name ?? node.name,
-        content: file.content ?? "",
-        loaded: true,
-      });
-    } catch (error) {
-      console.error("Could not open file:", error.response?.data || error);
-
-      toast.error(
-        error.response?.data?.message || `Could not open ${node.name}`
+      patch(
+        node.id,
+        {
+          name: node.name,
+          content: "",
+          loaded: false,
+          dirty: false,
+          status: "saved",
+          projectId,
+        },
+        true
       );
 
-      delete buffersRef.current[node.id];
-      setBuffers({ ...buffersRef.current });
+      try {
+        const file = await getFile(projectId, node.id); // node.id === path
 
-      setTabs((current) => current.filter((id) => id !== node.id));
+        if (!buffersRef.current[node.id]) return;
 
-      setActiveId((current) =>
-        current === node.id ? null : current
+        patch(node.id, { content: file.content ?? "", loaded: true });
+      } catch (error) {
+        toast.error(error.response?.data?.message || `Could not open ${node.name}`);
+
+        const { [node.id]: _removed, ...rest } = buffersRef.current;
+        buffersRef.current = rest;
+        setBuffers(rest);
+        setTabs((current) => current.filter((id) => id !== node.id));
+        setActiveId((current) => (current === node.id ? null : current));
+      } finally {
+        loadingFiles.current.delete(node.id);
+      }
+    },
+    [getFile, patch, projectId]
+  );
+
+  // Open a file and jump to a match
+  const openAt = useCallback(
+    async (path, line = 1, column = 1, length = 0) => {
+      await openFile({ id: path, name: path.split("/").pop(), type: "file" });
+      setReveal({ path, line, column, length, n: Date.now() });
+    },
+    [openFile]
+  );
+
+  // After a replace-in-files, refresh any open tabs whose files changed on disk
+  const reloadFiles = useCallback(
+    async (paths) => {
+      const pid = projectIdRef.current;
+      await Promise.all(
+        paths
+          .filter((p) => buffersRef.current[p])
+          .map(async (p) => {
+            clearTimeout(timers.current[p]);
+            delete timers.current[p];
+            try {
+              const file = await getFile(pid, p);
+              patch(p, { content: file.content ?? "", dirty: false, status: "saved" });
+            } catch {
+              /* file no longer exists */
+            }
+          })
       );
-    } finally {
-      loadingFiles.current.delete(node.id);
-    }
-  },
-  [getFile, patch, projectId]
-);
-
+    },
+    [getFile, patch]
+  );
 
   const closeTab = useCallback(
     (id) => {
@@ -306,7 +257,6 @@ const openFile = useCallback(
 
       const index = tabs.indexOf(id);
       const next = tabs.filter((tabId) => tabId !== id);
-
       setTabs(next);
 
       if (activeId === id) {
@@ -316,39 +266,35 @@ const openFile = useCallback(
     [tabs, activeId, save]
   );
 
-const createNode = useCallback(
-  async (name, type, parentId = null) => {
-    if (!projectId) return;
+  // parentId is the parent FOLDER'S PATH (or null for the project root)
+  const createNode = useCallback(
+    async (name, type, parentId = null) => {
+      if (!projectId) return null;
 
-    try {
-      const node = await createFileNode(projectId, {
-        name: name.trim(),
-        type: type.toUpperCase(),
-        parentId, // Must be the selected folder's ID
-        content: "",
-      });
+      const clean = name.trim();
+      const path = parentId ? `${parentId}/${clean}` : clean;
 
-      const normalizedNode = {
-        ...node,
-        id: node.id ?? node._id,
-        parentId: node.parentId ?? null,
-        type: node.type.toLowerCase(),
-      };
+      try {
+        await createFileNode(projectId, { path, type });
 
-      setTree((prev) => [...prev, normalizedNode]);
+        const node = {
+          id: path,
+          path,
+          name: clean,
+          parentId,
+          type: type.toLowerCase(),
+        };
+        setTree((prev) => [...prev, node]);
+        return node;
+      } catch (error) {
+        toast.error(error.response?.data?.message || "Could not create file or folder");
+        return null;
+      }
+    },
+    [projectId, createFileNode]
+  );
 
-      return normalizedNode;
-    } catch (error) {
-      toast.error(
-        error.response?.data?.message || "Could not create file or folder"
-      );
-      return null;
-    }
-  },
-  [projectId, createFileNode]
-);
-
-  // Warn before leaving with unsaved changes and clean up timers.
+  // Warn before leaving with unsaved changes and flush on unmount.
   useEffect(() => {
     const warn = (event) => {
       if (Object.values(buffersRef.current).some((buf) => buf.dirty)) {
@@ -356,18 +302,14 @@ const createNode = useCallback(
         event.returnValue = "";
       }
     };
-
     window.addEventListener("beforeunload", warn);
-
     return () => {
       window.removeEventListener("beforeunload", warn);
       flushAll();
     };
   }, [flushAll]);
 
-  const project = projects.find(
-    (item) => item.id === projectId
-  ) ?? null;
+  const project = projects.find((item) => item.id === projectId) ?? null;
 
   return {
     projects,
@@ -386,5 +328,7 @@ const createNode = useCallback(
     change,
     save,
     createNode,
+    refreshTree,
+    reveal, openAt, reloadFiles, flushAll,
   };
 }

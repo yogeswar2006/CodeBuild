@@ -1,41 +1,57 @@
 import prisma from "../lib/prisma.js"
+import fs from "fs/promises";
+import path from "path";
+import {
+  createWorkspace, deleteWorkspace, readTree, safeResolve,
+} from "../lib/workspace.js";
+import { searchProject, replaceInProject } from "../lib/search.js";
 
+
+// ownership check used by every file route
+const ownsProject = (projectId, userId) =>
+  prisma.project.findFirst({
+    where: { id: projectId, ownerId: userId },
+    select: { id: true },
+  });
+
+  const fail = (res, error, msg) => {
+     if (error.status === 400) return res.status(400).json({ message: error.message });
+  // if (error.status === 400) return res.status(400).json({ message: "Invalid path" });
+  if (error.code === "ENOENT") return res.status(404).json({ message: "Not found" });
+  if (error.code === "EEXIST") return res.status(409).json({ message: "Already exists" });
+  console.error(msg, error);
+  return res.status(500).json({ message: msg });
+};
 
 
 const createProject = async (req, res) => {
-
-  try { 
+  try {
     const { name, description } = req.body;
-
-    if (typeof name !== 'string' || !name.trim()) {
-      return res.status(400).json({
-        message: 'Project name is required'
-      });
-    }
+    if (typeof name !== "string" || !name.trim())
+      return res.status(400).json({ message: "Project name is required" });
 
     const project = await prisma.project.create({
       data: {
         name: name.trim(),
         description:
-          typeof description === 'string' && description.trim()
-            ? description.trim()
-            : null,
-        ownerId: req.user.id
-      }
+          typeof description === "string" && description.trim() ? description.trim() : null,
+        ownerId: req.user.id,
+      },
     });
 
-    return res.status(201).json({
-      message: 'Project created successfully',
-      project
-    });
+    try {
+      await createWorkspace(project.id);
+    } catch (e) {
+      // keep DB and disk consistent
+      await prisma.project.delete({ where: { id: project.id } });
+      throw e;
+    }
+
+    return res.status(201).json({ message: "Project created successfully", project });
   } catch (error) {
-    console.error('Project creation error:', error);
-
-    return res.status(500).json({
-      message: 'Failed to create project'
-    });
+    return fail(res, error, "Failed to create project");
   }
-}
+};//done
 
 const getAllCurrentUserProjects = async (req, res) => {
   try {
@@ -63,7 +79,7 @@ const getAllCurrentUserProjects = async (req, res) => {
 
 const getProjectById = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { projectId: id } = req.params;
 
     const project = await prisma.project.findFirst({
       where: {
@@ -93,7 +109,7 @@ const getProjectById = async (req, res) => {
 
 const updateProject = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { projectId: id  } = req.params;
     const { name, description } = req.body;
 
     if (name === undefined && description === undefined) {
@@ -167,307 +183,193 @@ const updateProject = async (req, res) => {
 
 const deleteProject = async (req, res) => {
   try {
-    const { id } = req.params;
-
+    const { projectId: id  } = req.params;
     const result = await prisma.project.deleteMany({
-      where: {
-        id,
-        ownerId: req.user.id
-      }
+      where: { id, ownerId: req.user.id },
     });
+    if (result.count === 0)
+      return res.status(404).json({ message: "Project not found" });
 
-    if (result.count === 0) {
-      return res.status(404).json({
-        message: 'Project not found'
-      });
-    }
-
-    return res.status(200).json({
-      message: 'Project deleted successfully'
-    });
+    await deleteWorkspace(id);
+    return res.status(200).json({ message: "Project deleted successfully" });
   } catch (error) {
-    console.error('Delete project error:', error);
-
-    return res.status(500).json({
-      message: 'Failed to delete project'
-    });
+    return fail(res, error, "Failed to delete project");
   }
-};
+}; // done
 
 
+// POST /projects/:projectId/nodes   body: { path, type, content? }
 const createFileNode = async (req, res) => {
   try {
-    const { name, type, projectId, parentId = null } = req.body;
-    let { content = "" } = req.body;
+    const { projectId } = req.params;
+    const { path: rel, type, content = "" } = req.body;
 
-    if (
-      typeof name !== "string" ||
-      !name.trim() ||
-      !["FILE", "FOLDER"].includes(type) ||
-      !projectId
-    ) {
-      return res.status(400).json({
-        message: "Valid name, type, and projectId are required"
-      });
+    if (typeof rel !== "string" || !rel.trim() || !["FILE", "FOLDER"].includes(type))
+      return res.status(400).json({ message: "Valid path and type are required" });
+    if (typeof content !== "string")
+      return res.status(400).json({ message: "Content must be a string" });
+    if (!(await ownsProject(projectId, req.user.id)))
+      return res.status(404).json({ message: "Project not found" });
+
+    const full = await safeResolve(projectId, rel);
+
+    if (type === "FOLDER") {
+      await fs.mkdir(full, { recursive: true });
+    } else {
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, content, { flag: "wx" }); // error if it exists
     }
-
-    if (typeof content !== "string") {
-      return res.status(400).json({
-        message: "Content must be a string"
-      });
-    }
-
-    if (type === "FOLDER" && content.trim()) {
-      return res.status(400).json({
-        message: "Folders cannot have content"
-      });
-    }
-
-    const project = await prisma.project.findFirst({
-      where: {
-        id: projectId,
-        ownerId: req.user.id
-      },
-      select: { id: true }
-    });
-
-    if (!project) {
-      return res.status(404).json({
-        message: "Project not found"
-      });
-    }
-
-    let validParentId = parentId;
-
-    if (validParentId !== null) {
-      if (
-        typeof validParentId !== "string" ||
-        !validParentId.trim()
-      ) {
-        return res.status(400).json({
-          message: "Invalid parentId"
-        });
-      }
-
-      const parent = await prisma.fileNode.findFirst({
-        where: {
-          id: validParentId,
-          projectId,
-          type: "FOLDER"
-        },
-        select: { id: true }
-      });
-
-      if (!parent) {
-        return res.status(400).json({
-          message: "Parent folder not found in this project"
-        });
-      }
-    }
-
-    const filenode = await prisma.fileNode.create({
-      data: {
-        name: name.trim(),
-        type,
-        content: type === "FILE" ? content : null,
-        projectId,
-        parentId: validParentId
-      }
-    });
-
-    return res.status(201).json({
-      message: "FileNode created successfully",
-      filenode
-    });
+    return res.status(201).json({ message: "Created successfully", path: rel });
   } catch (error) {
-    console.error("Error creating FileNode:", error);
-
-    return res.status(500).json({
-      message: "Failed to create FileNode"
-    });
+    return fail(res, error, "Failed to create node");
   }
-};
+};// done
 
 
+// GET /projects/:projectId/tree
 const getProjectHeirarchy = async (req, res) => {
   try {
     const { projectId } = req.params;
+    if (!(await ownsProject(projectId, req.user.id)))
+      return res.status(404).json({ message: "Project not found" });
 
-    const project = await prisma.project.findFirst({
-      where: {
-        id: projectId,
-        ownerId: req.user.id
-      },
-      select: { id: true }
-    });
-
-    if (!project) {
-      return res.status(404).json({
-        message: "Project not found"
-      });
-    }
-
-    const nodes = await prisma.fileNode.findMany({
-      where: { projectId },
-      select: {
-        id: true,
-        name: true,
-        type: true,
-        parentId: true,
-        createdAt: true,
-        updatedAt: true
-      },
-      orderBy: {
-        name: "asc"
-      }
-    });
-
-    const nodeMap = new Map();
-
-    for (const node of nodes) {
-      nodeMap.set(node.id, {
-        ...node,
-        children: []
-      });
-    }
-
-    const rootNodes = [];
-
-    for (const node of nodeMap.values()) {
-      if (node.parentId === null) {
-        rootNodes.push(node);
-      } else {
-        const parent = nodeMap.get(node.parentId);
-
-        if (parent) {
-          parent.children.push(node);
-        }
-      }
-    }
-
-    return res.status(200).json({
-      message: "Project hierarchy fetched successfully",
-      tree: rootNodes
-    });
+    const tree = await readTree(await safeResolve(projectId));
+    return res.status(200).json({ message: "Project hierarchy fetched successfully", tree });
   } catch (error) {
-    console.error("Error fetching project hierarchy:", error);
-
-    return res.status(500).json({
-      message: "Failed to fetch project hierarchy"
-    });
+    return fail(res, error, "Failed to fetch project hierarchy");
   }
-};
+}; //done
 
 
+// GET /projects/:projectId/file?path=src/App.jsx
 const getFileContent = async (req, res) => {
   try {
-    const { projectId, fileId } = req.params;
+    const { projectId } = req.params;
+    if (!(await ownsProject(projectId, req.user.id)))
+      return res.status(404).json({ message: "Project not found" });
 
-    const file = await prisma.fileNode.findFirst({
-      where: {
-        id: fileId,
-        projectId,
-        type: "FILE",
-        project: {
-          ownerId: req.user.id
-        }
-      },
-      select: {
-        id: true,
-        name: true,
-        type: true,
-        content: true,
-        projectId: true,
-        parentId: true,
-        updatedAt: true
-      }
-    });
+    const full = await safeResolve(projectId, req.query.path);
+    const stat = await fs.stat(full);
+    if (!stat.isFile()) return res.status(400).json({ message: "Not a file" });
+    if (stat.size > 2 * 1024 * 1024)
+      return res.status(413).json({ message: "File too large to open" });
 
-    if (!file) {
-      return res.status(404).json({
-        message: "File not found"
-      });
-    }
-
+    const content = await fs.readFile(full, "utf8");
     return res.status(200).json({
       message: "File content fetched successfully",
-      file
+      file: { path: req.query.path, content, updatedAt: stat.mtime },
     });
   } catch (error) {
-    console.error("Error fetching file content:", error);
-
-    return res.status(500).json({
-      message: "Failed to fetch file content"
-    });
+    return fail(res, error, "Failed to fetch file content");
   }
-};
+}; // done
 
+// PUT /projects/:projectId/file   body: { path, content }
 const updateFileContent = async (req, res) => {
   try {
-    const { projectId, fileId } = req.params;
-    const { content } = req.body;
+    const { projectId } = req.params;
+    const { path: rel, content } = req.body;
 
-    if (typeof content !== "string") {
-      return res.status(400).json({
-        message: "Content must be a string"
-      });
-    }
+    if (typeof content !== "string")
+      return res.status(400).json({ message: "Content must be a string" });
+    if (!(await ownsProject(projectId, req.user.id)))
+      return res.status(404).json({ message: "Project not found" });
 
-    const result = await prisma.fileNode.updateMany({
-      where: {
-        id: fileId,
-        projectId,
-        type: "FILE",
-        project: {
-          ownerId: req.user.id
-        }
-      },
-      data: { content }
-    });
+    const full = await safeResolve(projectId, rel);
+    await fs.stat(full); // must already exist (ENOENT -> 404)
+    await fs.writeFile(full, content);
 
-    if (result.count === 0) {
-      return res.status(404).json({
-        message: "File not found"
-      });
-    }
-
-     const file = await prisma.fileNode.findFirst({
-      where: {
-        id: fileId,
-        projectId,
-        type: "FILE",
-        project: {
-          ownerId: req.user.id
-        }
-      },
-      select: {
-        id: true,
-        name: true,
-        type: true,
-        content: true,
-        projectId: true,
-        parentId: true,
-        updatedAt: true
-      }
-    });
-
-    return res.status(200).json({
-      message: "File saved successfully",
-      file
-    });
+    return res.status(200).json({ message: "File saved successfully" });
   } catch (error) {
-    console.error("Error saving file:", error);
+    return fail(res, error, "Failed to save file");
+  }
+};//done
 
-    return res.status(500).json({
-      message: "Failed to save file"
-    });
+// PATCH /projects/:projectId/nodes   body: { from, to }
+const renameNode = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { from, to } = req.body;
+    if (!(await ownsProject(projectId, req.user.id)))
+      return res.status(404).json({ message: "Project not found" });
+
+    const src = await safeResolve(projectId, from);
+    const dst = await safeResolve(projectId, to);
+    await fs.mkdir(path.dirname(dst), { recursive: true });
+    await fs.rename(src, dst);
+    return res.status(200).json({ message: "Renamed successfully" });
+  } catch (error) {
+    return fail(res, error, "Failed to rename");
+  }
+}; //done
+
+// DELETE /projects/:projectId/nodes?path=src/old.js
+const deleteNode = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    if (!(await ownsProject(projectId, req.user.id)))
+      return res.status(404).json({ message: "Project not found" });
+
+    const full = await safeResolve(projectId, req.query.path);
+    if (full === (await safeResolve(projectId)))
+      return res.status(400).json({ message: "Cannot delete project root" });
+
+    await fs.rm(full, { recursive: true });
+    return res.status(200).json({ message: "Deleted successfully" });
+  } catch (error) {
+    return fail(res, error, "Failed to delete");
+  }
+};//done
+
+
+
+const searchOptions = (body) => ({
+  query: body.query,
+  isRegex: !!body.isRegex,
+  caseSensitive: !!body.caseSensitive,
+  wholeWord: !!body.wholeWord,
+});
+
+// POST /projects/:projectId/search   body: { query, isRegex, caseSensitive, wholeWord }
+const searchFiles = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    if (!(await ownsProject(projectId, req.user.id)))
+      return res.status(404).json({ message: "Project not found" });
+
+    await safeResolve(projectId); // makes sure the folder exists
+    const out = await searchProject(projectId, searchOptions(req.body));
+    return res.status(200).json(out);
+  } catch (error) {
+    return fail(res, error, "Search failed");
   }
 };
 
+// POST /projects/:projectId/replace   body: { ...search options, replacement, paths? }
+const replaceInFiles = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { replacement, paths } = req.body;
+
+    if (paths !== undefined && paths !== null &&
+        (!Array.isArray(paths) || !paths.every((p) => typeof p === "string")))
+      return res.status(400).json({ message: "paths must be an array of strings" });
+
+    if (!(await ownsProject(projectId, req.user.id)))
+      return res.status(404).json({ message: "Project not found" });
+
+    await safeResolve(projectId);
+    const out = await replaceInProject(projectId, searchOptions(req.body), replacement, paths);
+    return res.status(200).json(out);
+  } catch (error) {
+    return fail(res, error, "Replace failed");
+  }
+};
 
 
 export default {
   createProject, getAllCurrentUserProjects,
   getProjectById, updateProject, deleteProject,
-  getProjectHeirarchy, createFileNode,getFileContent,updateFileContent
+  getProjectHeirarchy, createFileNode,getFileContent,updateFileContent,renameNode,deleteNode,
+  searchFiles , replaceInFiles
 }
