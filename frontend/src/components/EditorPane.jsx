@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef,useEffect } from "react";
 import Editor from "@monaco-editor/react";
 import { Code2, X } from "lucide-react";
 import { getFileIcon, getLanguage } from "../lib/fileTypes";
@@ -45,12 +45,14 @@ const AYU_THEME = {
   },
 };
 
+
+
 let configured = false;
 function configureMonaco(monaco) {
   monaco.editor.defineTheme("ayu", AYU_THEME);
   if (configured) return;
   configured = true;
-  
+
 
   const ts = monaco.languages.typescript;
   if (ts) {
@@ -95,7 +97,7 @@ function configureMonaco(monaco) {
 const EDITOR_OPTIONS = {
   fontSize: 14,
   // fontFamily: "'Cascadia Code', 'Fira Code', Menlo, Consolas, monospace",
-    fontFamily: "'JetBrains Mono', monospace",
+  fontFamily: "'JetBrains Mono', monospace",
   fontLigatures: true,
   minimap: { enabled: true },
   automaticLayout: true, // follows the sidebar being resized
@@ -117,7 +119,7 @@ const EDITOR_OPTIONS = {
 const SHORTCUTS = [
   ["Save now", "Ctrl + S"],
   ["Show suggestions", "Ctrl + Space"],
-  ["Find in file", "Ctrl + F"],
+  ["Find in file", "Ctrl + Shift + F"],
   ["Toggle comment", "Ctrl + /"],
   ["Command palette", "F1"],
 ];
@@ -126,7 +128,7 @@ function Welcome({ hasProject }) {
   return (
     <div className="flex h-full items-center justify-center overflow-y-auto p-8">
       <div className="w-full max-w-md">
-        
+
         <h2 className="text-2xl font-bold text-[#e7e7e7]">CodeSpace</h2>
         <p className="mt-1 text-sm text-[#8b949e]">Your code, saved as you type.</p>
 
@@ -168,25 +170,46 @@ const STATUS = {
   error: ["Save failed", "#FF7F6E"],
 };
 
-export default function EditorPane({ ws }) { 
-  const saveRef = useRef(() => {});
+export default function EditorPane({ ws }) {
+
+  const editorRef = useRef(null);
+  const revealedRef = useRef(null);
+  const applyRevealRef = useRef(() => { });
+
+  const saveRef = useRef(() => { });
   const buf = ws.buffers[ws.activeId];
   saveRef.current = () => ws.activeId && ws.save(ws.activeId);
 
-  const handleMount = (editor, monaco) => {
-  editor.addCommand(
-    monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
-    () => {
-      console.log("Ctrl+S triggered", {
-        activeId: ws.activeId,
-        buffer: ws.buffers[ws.activeId],
-      });
+  applyRevealRef.current = () => {
+    const r = ws.reveal;
+    const ed = editorRef.current;
+    if (!r || !ed || !ed.getModel() || !buf?.loaded) return;
+    if (r.path !== ws.activeId || revealedRef.current === r.n) return;
 
-      if (ws.activeId) {
-        ws.save(ws.activeId);
-      }
-    }
-  );
+    revealedRef.current = r.n;
+    const range = {
+      startLineNumber: r.line,
+      startColumn: r.column,
+      endLineNumber: r.line,
+      endColumn: r.column + r.length,
+    };
+    ed.setSelection(range);
+    ed.revealRangeInCenter(range);
+    ed.focus();
+  };
+
+  // file already open: jump right away
+  useEffect(() => {
+    applyRevealRef.current();
+  }, [ws.reveal, ws.activeId, buf?.loaded]);
+  
+
+  const handleMount = (editor, monaco) => {
+  editorRef.current = editor;
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+    saveRef.current();
+  });
+  applyRevealRef.current();
 };
 
   const [statusText, statusColor] = (buf && STATUS[buf.status]) || [];
@@ -206,11 +229,10 @@ export default function EditorPane({ ws }) {
                 key={id}
                 onClick={() => ws.setActiveId(id)}
                 onAuxClick={() => ws.closeTab(id)}
-                className={`group flex min-w-[120px] max-w-[220px] cursor-pointer items-center gap-2 border-r border-[#1e1e1e] px-3 text-[13px] ${
-                  active
+                className={`group flex min-w-[120px] max-w-[220px] cursor-pointer items-center gap-2 border-r border-[#1e1e1e] px-3 text-[13px] ${active
                     ? "border-t-2 border-t-[#7BE5C4] bg-[#1e1e1e] text-white"
                     : "border-t-2 border-t-transparent bg-[#2d2d2d] text-[#9da5b4] hover:bg-[#2a2d2e]"
-                }`}
+                  }`}
               >
                 <Icon size={15} style={{ color }} className="shrink-0" />
                 <span className="truncate">{b.name}</span>
@@ -240,7 +262,7 @@ export default function EditorPane({ ws }) {
           buf.loaded ? (
             <Editor
               // One model per file: undo history, cursor and scroll survive tab switches
-              path={`${ws.activeId}/${buf.name}`}
+              path={`${ws.projectId}/${ws.activeId}`}
               language={getLanguage(buf.name)}
               value={buf.content}
               onChange={(value) => ws.change(ws.activeId, value ?? "")}

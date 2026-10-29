@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import toast from "react-hot-toast";
+
 import {
   ChevronDown,
   ChevronRight,
+  RefreshCw,
   FilePlus,
   FolderPlus,
   Folder,
@@ -296,6 +298,11 @@ const submitCreate = async (name) => {
             className="rounded p-1 hover:bg-[#3c3c3c] hover:text-white"
           >
             <FolderPlus size={16} />
+          </button>
+            {/* // inside the icon group: */}
+          <button type="button" onClick={() => ws.refreshTree()} title="Refresh"
+            className="rounded p-1 hover:bg-[#3c3c3c] hover:text-white">
+            <RefreshCw size={16} />
           </button>
         </div>
       </div>

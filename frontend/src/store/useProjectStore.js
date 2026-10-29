@@ -1,175 +1,111 @@
-
 import { create } from "zustand";
 import api from "../lib/axios";
 
-export const useProjectStore = create((set, get) => ({
+const msg = (error, fallback) => error.response?.data?.message || fallback;
+
+// Backend returns a nested tree: { name, path, type: "FILE"|"FOLDER", children }.
+// Explorer wants a flat list, so: id = path, parentId = parent folder's path.
+const flattenTree = (nodes, parentId = null) =>
+  nodes.flatMap(({ children = [], ...node }) => [
+    { ...node, id: node.path, parentId, type: node.type.toLowerCase() },
+    ...flattenTree(children, node.path),
+  ]);
+
+export const useProjectStore = create((set) => ({
   projects: [],
   loading: false,
   error: null,
 
-  // GET: Fetch all projects belonging to the logged-in user
+  // GET /projects
   getProjects: async () => {
     set({ loading: true, error: null });
-
     try {
-      const res = await api.get("/projects/fetch");
-
-      const projects = res.data.projects ?? res.data;
-
+      const res = await api.get("/projects");
+      const projects = res.data.projects ?? [];
       set({ projects, loading: false });
-
       return projects;
     } catch (error) {
-      set({
-        loading: false,
-        error: error.response?.data?.message || "Failed to fetch projects",
-      });
-
+      set({ loading: false, error: msg(error, "Failed to fetch projects") });
       throw error;
     }
   },
 
-  // POST: Create a project
-  createProject: async (data) => {
+  // POST /projects
+  createProject: async ({ name, description }) => {
     try {
-      const res = await api.post("/projects/create", { name:data.name , description:data.description });
-
-      const project = res.data.project ?? res.data;
-
-      set((state) => ({
-        projects: [...state.projects, project],
-        error: null,
-      }));
-
+      const res = await api.post("/projects", { name, description });
+      const project = res.data.project;
+      set((state) => ({ projects: [project, ...state.projects], error: null }));
       return project;
     } catch (error) {
-      set({
-        error: error.response?.data?.message || "Failed to create project",
-      });
-
+      set({ error: msg(error, "Failed to create project") });
       throw error;
     }
   },
 
-  // GET: Fetch a project's complete file tree
- 
-getProjectTree: async (projectId) => {
-  try {
-    const res = await api.get(`/projects/${projectId}/tree`);
-
-    const tree = res.data.tree ?? res.data;
-
-    if (!Array.isArray(tree)) {
-      throw new Error("Invalid project tree response");
+  // GET /projects/:projectId/tree
+  getProjectTree: async (projectId) => {
+    try {
+      const res = await api.get(`/projects/${projectId}/tree`);
+      if (!Array.isArray(res.data.tree)) throw new Error("Invalid tree response");
+      return flattenTree(res.data.tree);
+    } catch (error) {
+      set({ error: msg(error, "Failed to fetch project files") });
+      throw error;
     }
+  },
 
-    // Convert nested children into the flat structure Explorer expects.
-    const flattenTree = (nodes, parentId = null) => {
-      const result = [];
+  // POST /projects/:projectId/nodes   body: { path, type, content }
+  createFileNode: async (projectId, { path, type, content = "" }) => {
+    try {
+      await api.post(`/projects/${projectId}/nodes`, {
+        path,
+        type: type.toUpperCase(),
+        content: type.toUpperCase() === "FILE" ? content : "",
+      });
+    } catch (error) {
+      set({ error: msg(error, "Failed to create file or folder") });
+      throw error;
+    }
+  },
 
-      for (const node of nodes) {
-        const { children = [], ...data } = node;
+  // PATCH /projects/:projectId/nodes   body: { from, to }
+  renameNode: async (projectId, from, to) => {
+    await api.patch(`/projects/${projectId}/nodes`, { from, to });
+  },
 
-        result.push({
-          ...data,
-          id: node.id ?? node._id,
-          parentId: node.parentId ?? parentId,
-          type: node.type?.toLowerCase(),
-        });
+  // DELETE /projects/:projectId/nodes?path=...
+  deleteNode: async (projectId, path) => {
+    await api.delete(`/projects/${projectId}/nodes`, { params: { path } });
+  },
 
-        if (Array.isArray(children) && children.length > 0) {
-          result.push(...flattenTree(children, node.id ?? node._id));
-        }
-      }
-
-      return result;
-    };
-
-    return flattenTree(tree);
-  } catch (error) {
-    set({
-      error:
-        error.response?.data?.message ||
-        error.message ||
-        "Failed to fetch project files",
-    });
-
-    throw error;
-  }
-},
-
-
-  // POST: Create a file or folder inside a project
- createFileNode: async (
-  projectId,
-  { name, type, parentId = null, content = "" }
-) => {
-  try {
-    const res = await api.post("projects/create/filenode", {
-      name,
-      type: type.toUpperCase(),
-      projectId,
-      parentId,
-      content: type.toUpperCase() === "FILE" ? content : "",
-    });
-
-    return res.data.filenode;
-  } catch (error) {
-    set({
-      error:
-        error.response?.data?.message || "Failed to create file or folder",
-    });
-    throw error;
-  }
-},
-
-  // GET: Fetch a file's content
- getFile: async (projectId, fileId) => {
-  if (!projectId || !fileId) {
-    throw new Error("Project ID and file ID are required");
-  }
-
-  try {
-    const res = await api.get(
-      `/projects/${projectId}/files/${fileId}`
-    );
-
-    return res.data.filenode ?? res.data.file ?? res.data;
-  } catch (error) {
-    console.error("Get file failed:", error.response?.data);
-    throw error;
-  }
-},
-
-  // PATCH: Save the latest file content
-
-
-saveFile: async (fileId, content, projectId) => {
-  if (!projectId || !fileId) {
-    throw new Error("Project ID and file ID are required to save");
-  }
-
-  try {
-    const res = await api.patch(
-      `/projects/${projectId}/files/${fileId}`,
-      { content }
-    );
-
+  // GET /projects/:projectId/file?path=...   -> { path, content, updatedAt }
+  getFile: async (projectId, path) => {
+    if (!projectId || !path) throw new Error("Project ID and path are required");
+    const res = await api.get(`/projects/${projectId}/file`, { params: { path } });
     return res.data.file;
-  } catch (error) {
-    console.error("Save API error:", {
-      status: error.response?.status,
-      data: error.response?.data,
-      message: error.message,
-    });
+  },
 
-    set({
-      error: error.response?.data?.message || "Failed to save file",
-    });
+  // PUT /projects/:projectId/file   body: { path, content }
+  saveFile: async (projectId, path, content) => {
+    if (!projectId || !path) throw new Error("Project ID and path are required");
+    try {
+      await api.put(`/projects/${projectId}/file`, { path, content });
+    } catch (error) {
+      set({ error: msg(error, "Failed to save file") });
+      throw error;
+    }
+  },
 
-    throw error;
-  }
-},
+  // POST /projects/:projectId/search -> { results: [{ path, matches }], total, truncated }
+  searchFiles: async (projectId, opts) => {
+    const res = await api.post(`/projects/${projectId}/search`, opts);
+    return res.data;
+  },
 
-
+  // POST /projects/:projectId/replace -> { changed: [{ path, count }], replacements }
+  replaceInFiles: async (projectId, opts, replacement, paths) => {
+    const res = await api.post(`/projects/${projectId}/replace`, { ...opts, replacement, paths });
+    return res.data;
+  },
 }));
