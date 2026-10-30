@@ -108,4 +108,16 @@ export const useProjectStore = create((set) => ({
     const res = await api.post(`/projects/${projectId}/replace`, { ...opts, replacement, paths });
     return res.data;
   },
+
+
+
+  gitStatus: async (id) => (await api.get(`/projects/${id}/git/status`)).data,
+  gitInit: (id) => api.post(`/projects/${id}/git/init`),
+  gitStage: (id, paths = []) => api.post(`/projects/${id}/git/stage`, { paths }),
+  gitUnstage: (id, paths = []) => api.post(`/projects/${id}/git/unstage`, { paths }),
+  gitCommit: (id, message) => api.post(`/projects/${id}/git/commit`, { message }),
+  gitSetRemote: (id, url) => api.put(`/projects/${id}/git/remote`, { url }),
+  gitPush: async (id) => (await api.post(`/projects/${id}/git/push`)).data,
+  gitPull: async (id) => (await api.post(`/projects/${id}/git/pull`)).data,
+
 }));

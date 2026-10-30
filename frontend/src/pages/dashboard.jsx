@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import SearchPanel from "../components/SearchPanel";
 
+import SourceControl from "../components/SourceControl";
+
 import TerminalPanel from "../components/TerminalPanel";
 import {
   X,
@@ -15,7 +17,8 @@ import {
   PanelLeftClose,
   Code2,
   LogOut,
-  
+  GitBranch,
+
 } from "lucide-react";
 import { FaGithub } from "react-icons/fa";
 import useWorkspace from "../hooks/useWorkspace";
@@ -61,10 +64,10 @@ export default function Dashboard() {
   const ws = useWorkspace();
   const { logout } = useAuthStore();
 
- const [sidebarWidth, setSidebarWidth] = useState(() => {
-  const saved = Number(safeStorageGet(STORAGE_KEY));
-  return clamp(saved || DEFAULT_WIDTH);
-});
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(safeStorageGet(STORAGE_KEY));
+    return clamp(saved || DEFAULT_WIDTH);
+  });
 
   const [toggleSettings, setToggleSettings] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -77,14 +80,14 @@ export default function Dashboard() {
 
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(() =>
-  clampTerm(Number(safeStorageGet(TERM_KEY)) || TERM_DEFAULT)
-);
+    clampTerm(Number(safeStorageGet(TERM_KEY)) || TERM_DEFAULT)
+  );
   const [termDragging, setTermDragging] = useState(false);
 
   const termStartY = useRef(0);
   const termStartH = useRef(TERM_DEFAULT);
 
-  const handleSettings = () => {
+  const handleSettings = () => {``
     setToggleSettings(!toggleSettings);
   }
 
@@ -138,8 +141,8 @@ export default function Dashboard() {
 
 
   useEffect(() => {
-  safeStorageSet(TERM_KEY, String(terminalHeight));
-}, [terminalHeight]);
+    safeStorageSet(TERM_KEY, String(terminalHeight));
+  }, [terminalHeight]);
 
   // If the window shrinks, keep the terminal from eating the editor
   useEffect(() => {
@@ -186,8 +189,8 @@ export default function Dashboard() {
   }, [dragging]);
 
   useEffect(() => {
-  safeStorageSet(STORAGE_KEY, String(sidebarWidth));
-}, [sidebarWidth]);
+    safeStorageSet(STORAGE_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
 
   const startResize = (event) => {
     event.preventDefault();
@@ -231,12 +234,18 @@ export default function Dashboard() {
           <Search size={21} strokeWidth={1.5} />
         </button>
 
-            
-           <GithubConnect/>
+        <button
+          type="button"
+          title="Source Control"
+          onClick={() => { setSidebarVisible(true); setActiveView("git"); }}
+          className={`flex h-12 w-full items-center justify-center border-l-2 ${activeView === "git" ? "border-[#007acc] text-white" : "border-transparent text-[#858585] hover:text-white"
+            }`}
+        >
+          <GitBranch size={21} strokeWidth={1.5} />
+        </button>
 
-            
 
-        
+        <GithubConnect />
 
         <div className="flex-1" />
 
@@ -355,7 +364,7 @@ export default function Dashboard() {
           >
             <div className="flex h-[35px] shrink-0 items-center justify-between px-3">
               <span className="text-[12px] font-medium uppercase tracking-wide text-[#bbbbbb]">
-                {activeView === "explorer" ? "Explorer" : "Search"}
+                {{ explorer: "Explorer", search: "Search", git: "Source Control" }[activeView]}
               </span>
 
               <button
@@ -368,13 +377,17 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {activeView === "explorer" ? (
+            <div className={activeView === "explorer" ? "contents" : "hidden"}>
               <Explorer ws={ws} />
-            ) : (
-              <div className={activeView === "search" ? "contents" : "hidden"}>
-                <SearchPanel ws={ws} active={activeView === "search" && sidebarVisible} />
-              </div>
-            )}
+            </div>
+
+            <div className={activeView === "search" ? "contents" : "hidden"}>
+              <SearchPanel ws={ws} active={activeView === "search" && sidebarVisible} />
+            </div>
+
+            <div className={activeView === "git" ? "contents" : "hidden"}>
+              <SourceControl ws={ws} active={activeView === "git" && sidebarVisible} />
+            </div>
           </aside>
 
           {/* Resizable divider */}

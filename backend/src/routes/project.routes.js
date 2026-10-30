@@ -1,6 +1,7 @@
 import express from "express";
 import projectController from "../controllers/project.controller.js";
 import ProtectedRoute from "../middlewares/auth.middleware.js";
+import gitController from "../controllers/git.controller.js";
 
 const router = express.Router();
 router.use(ProtectedRoute);
@@ -26,5 +27,17 @@ router.put("/:projectId/file", projectController.updateFileContent);
 
 router.post("/:projectId/search", projectController.searchFiles);
 router.post("/:projectId/replace", projectController.replaceInFiles);
+
+
+
+
+router.get("/:projectId/git/status", gitController.status);
+router.post("/:projectId/git/init", gitController.init);
+router.post("/:projectId/git/stage", gitController.stage);
+router.post("/:projectId/git/unstage", gitController.unstage);
+router.post("/:projectId/git/commit", gitController.commit);
+router.put("/:projectId/git/remote", gitController.setRemote);
+router.post("/:projectId/git/push", gitController.push);
+router.post("/:projectId/git/pull", gitController.pull);
 
 export default router;
