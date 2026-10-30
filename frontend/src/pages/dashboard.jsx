@@ -15,11 +15,14 @@ import {
   PanelLeftClose,
   Code2,
   LogOut,
+  
 } from "lucide-react";
+import { FaGithub } from "react-icons/fa";
 import useWorkspace from "../hooks/useWorkspace";
 import Explorer from "../components/Explorer";
 import EditorPane from "../components/EditorPane";
 import { useAuthStore } from "../store/useAuthStore";
+import GithubConnect from "../components/GithubConnect";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 500;
@@ -36,16 +39,32 @@ const TERM_KEY = "codespace-terminal-height";
 const clampTerm = (v) =>
   Math.min(Math.max(TERM_MIN, v), Math.max(TERM_MIN, window.innerHeight - 200));
 
+const safeStorageGet = (key) => {
+  try {
+    return localStorage.getItem(key);
+  } catch (error) {
+    console.warn(`Unable to read storage key "${key}"`, error);
+    return null;
+  }
+};
+
+const safeStorageSet = (key, value) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    console.warn(`Unable to save storage key "${key}"`, error);
+  }
+};
 
 
 export default function Dashboard() {
   const ws = useWorkspace();
   const { logout } = useAuthStore();
 
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = Number(localStorage.getItem(STORAGE_KEY));
-    return clamp(saved || DEFAULT_WIDTH);
-  });
+ const [sidebarWidth, setSidebarWidth] = useState(() => {
+  const saved = Number(safeStorageGet(STORAGE_KEY));
+  return clamp(saved || DEFAULT_WIDTH);
+});
 
   const [toggleSettings, setToggleSettings] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -58,8 +77,8 @@ export default function Dashboard() {
 
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(() =>
-    clampTerm(Number(localStorage.getItem(TERM_KEY)) || TERM_DEFAULT)
-  );
+  clampTerm(Number(safeStorageGet(TERM_KEY)) || TERM_DEFAULT)
+);
   const [termDragging, setTermDragging] = useState(false);
 
   const termStartY = useRef(0);
@@ -119,8 +138,8 @@ export default function Dashboard() {
 
 
   useEffect(() => {
-    localStorage.setItem(TERM_KEY, String(terminalHeight));
-  }, [terminalHeight]);
+  safeStorageSet(TERM_KEY, String(terminalHeight));
+}, [terminalHeight]);
 
   // If the window shrinks, keep the terminal from eating the editor
   useEffect(() => {
@@ -167,8 +186,8 @@ export default function Dashboard() {
   }, [dragging]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, String(sidebarWidth));
-  }, [sidebarWidth]);
+  safeStorageSet(STORAGE_KEY, String(sidebarWidth));
+}, [sidebarWidth]);
 
   const startResize = (event) => {
     event.preventDefault();
@@ -211,6 +230,13 @@ export default function Dashboard() {
         >
           <Search size={21} strokeWidth={1.5} />
         </button>
+
+            
+           <GithubConnect/>
+
+            
+
+        
 
         <div className="flex-1" />
 
