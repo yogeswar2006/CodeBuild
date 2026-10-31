@@ -7,15 +7,11 @@ export const AUTOSAVE_MS = 5000;
 // In this hook, a file's "id" is its relative path, e.g. "src/components/Button.jsx".
 export default function useWorkspace() {
   const {
-    projects,
-    loading,
-    getProjects,
-    createProject,
-    getProjectTree,
-    createFileNode,
-    getFile,
-    saveFile,
-  } = useProjectStore();
+  projects, sharedProjects, loading, getProjects, createProject, getProjectTree,
+  createFileNode, getFile, saveFile,
+  renameNode: apiRenameNode,
+  deleteNode: apiDeleteNode,
+} = useProjectStore();
 
   const [reveal, setReveal] = useState(null); // { path, line, column, length, n }
 
@@ -29,6 +25,13 @@ export default function useWorkspace() {
   const timers = useRef({});
   const loadingFiles = useRef(new Set());
   const projectIdRef = useRef(null);
+
+  // Current project and my role in it: OWNER | EDITOR | VIEWER
+  const project = [...projects, ...sharedProjects].find((p) => p.id === projectId) ?? null;
+  const role = project?.role ?? null;
+  const canEdit = role === "OWNER" || role === "EDITOR";
+  const canEditRef = useRef(false);
+  canEditRef.current = canEdit;
 
   const patch = useCallback((id, values, create = false) => {
     if (!create && !buffersRef.current[id]) return;
@@ -81,6 +84,7 @@ export default function useWorkspace() {
 
   const change = useCallback(
     (id, content) => {
+      if (!canEditRef.current) return; // viewers never edit or autosave
       const buf = buffersRef.current[id];
       if (!buf || !buf.loaded || buf.content === content) return;
 
@@ -97,23 +101,33 @@ export default function useWorkspace() {
   }, [save]);
 
   // Load projects on mount.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const list = await getProjects();
-        if (!cancelled && Array.isArray(list) && list.length) {
-          projectIdRef.current = list[0].id;
-          setProjectId(list[0].id);
-        }
-      } catch {
-        if (!cancelled) toast.error("Could not load projects");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [getProjects]);
+ const LAST_KEY = "codespace-last-project";
+
+useEffect(() => {
+  let cancelled = false;
+  (async () => {
+    try {
+      const list = await getProjects();
+      if (cancelled || !Array.isArray(list) || !list.length) return;
+
+      let saved = null;
+      try { saved = localStorage.getItem(LAST_KEY); } catch { /* ignore */ }
+
+      const pick = list.find((p) => p.id === saved) ?? list[0];
+      projectIdRef.current = pick.id;
+      setProjectId(pick.id);
+    } catch {
+      if (!cancelled) toast.error("Could not load projects");
+    }
+  })();
+  return () => { cancelled = true; };
+}, [getProjects]);
+
+// remember the selection
+useEffect(() => {
+  if (!projectId) return;
+  try { localStorage.setItem(LAST_KEY, projectId); } catch { /* ignore */ }
+}, [projectId]);
 
   // (Re)load the file tree. Also used after the terminal changes files on disk.
   const refreshTree = useCallback(
@@ -158,9 +172,9 @@ export default function useWorkspace() {
   const addProject = useCallback(
     async (data) => {
       try {
-        const project = await createProject(data);
-        if (!project?.id) throw new Error("Created project has no id");
-        await selectProject(project.id);
+        const created = await createProject(data);
+        if (!created?.id) throw new Error("Created project has no id");
+        await selectProject(created.id);
         toast.success("Project created");
         return true;
       } catch {
@@ -229,7 +243,7 @@ export default function useWorkspace() {
     [openFile]
   );
 
-  // After a replace-in-files, refresh any open tabs whose files changed on disk
+  // After a replace-in-files or git pull, refresh open tabs whose files changed on disk
   const reloadFiles = useCallback(
     async (paths) => {
       const pid = projectIdRef.current;
@@ -269,7 +283,7 @@ export default function useWorkspace() {
   // parentId is the parent FOLDER'S PATH (or null for the project root)
   const createNode = useCallback(
     async (name, type, parentId = null) => {
-      if (!projectId) return null;
+      if (!projectId || !canEditRef.current) return null;
 
       const clean = name.trim();
       const path = parentId ? `${parentId}/${clean}` : clean;
@@ -294,6 +308,70 @@ export default function useWorkspace() {
     [projectId, createFileNode]
   );
 
+  const isUnder = (p, base) => p === base || p.startsWith(base + "/");
+
+// Rename or move a file/folder. Open tabs and buffers follow the new path.
+const renameNode = useCallback(
+  async (from, to) => {
+    if (!projectId || !canEditRef.current) return false;
+    try {
+      await flushAll(); // save pending edits before the path changes
+      await apiRenameNode(projectId, from, to);
+
+      const remap = (id) => (isUnder(id, from) ? to + id.slice(from.length) : id);
+
+      const next = {};
+      for (const [id, buf] of Object.entries(buffersRef.current)) {
+        const nid = remap(id);
+        next[nid] = nid === id ? buf : { ...buf, name: nid.split("/").pop() };
+      }
+      buffersRef.current = next;
+      setBuffers(next);
+      setTabs((t) => t.map(remap));
+      setActiveId((a) => (a ? remap(a) : a));
+
+      await refreshTree();
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not rename");
+      return false;
+    }
+  },
+  [projectId, flushAll, apiRenameNode, refreshTree]
+);
+
+// Delete a file/folder and close any tabs inside it.
+const deleteNode = useCallback(
+  async (path) => {
+    if (!projectId || !canEditRef.current) return false;
+    try {
+      await apiDeleteNode(projectId, path);
+
+      const removed = Object.keys(buffersRef.current).filter((id) => isUnder(id, path));
+      removed.forEach((id) => {
+        clearTimeout(timers.current[id]);
+        delete timers.current[id];
+      });
+      const rest = Object.fromEntries(
+        Object.entries(buffersRef.current).filter(([id]) => !isUnder(id, path))
+      );
+      buffersRef.current = rest;
+      setBuffers(rest);
+
+      const remaining = tabs.filter((id) => !isUnder(id, path));
+      setTabs(remaining);
+      if (activeId && isUnder(activeId, path)) setActiveId(remaining[remaining.length - 1] ?? null);
+
+      await refreshTree();
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not delete");
+      return false;
+    }
+  },
+  [projectId, apiDeleteNode, tabs, activeId, refreshTree]
+);
+
   // Warn before leaving with unsaved changes and flush on unmount.
   useEffect(() => {
     const warn = (event) => {
@@ -309,12 +387,13 @@ export default function useWorkspace() {
     };
   }, [flushAll]);
 
-  const project = projects.find((item) => item.id === projectId) ?? null;
-
   return {
     projects,
+    sharedProjects,
     projectId,
     project,
+    role,
+    canEdit,
     tree,
     loading,
     tabs,
@@ -329,6 +408,11 @@ export default function useWorkspace() {
     save,
     createNode,
     refreshTree,
-    reveal, openAt, reloadFiles, flushAll,
+    reveal,
+    openAt,
+    reloadFiles,
+    flushAll,
+    renameNode,
+    deleteNode,
   };
 }

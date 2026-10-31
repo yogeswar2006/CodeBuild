@@ -13,17 +13,19 @@ const flattenTree = (nodes, parentId = null) =>
 
 export const useProjectStore = create((set) => ({
   projects: [],
+  sharedProjects: [], // projects other people shared with me
   loading: false,
   error: null,
 
-  // GET /projects
+  // GET /projects -> { projects (owned), shared }
   getProjects: async () => {
     set({ loading: true, error: null });
     try {
       const res = await api.get("/projects");
       const projects = res.data.projects ?? [];
-      set({ projects, loading: false });
-      return projects;
+      const sharedProjects = res.data.shared ?? [];
+      set({ projects, sharedProjects, loading: false });
+      return [...projects, ...sharedProjects]; // so the first project can be auto-selected
     } catch (error) {
       set({ loading: false, error: msg(error, "Failed to fetch projects") });
       throw error;
@@ -34,7 +36,7 @@ export const useProjectStore = create((set) => ({
   createProject: async ({ name, description }) => {
     try {
       const res = await api.post("/projects", { name, description });
-      const project = res.data.project;
+      const project = { ...res.data.project, role: "OWNER" };
       set((state) => ({ projects: [project, ...state.projects], error: null }));
       return project;
     } catch (error) {
@@ -109,8 +111,9 @@ export const useProjectStore = create((set) => ({
     return res.data;
   },
 
+  
 
-
+  // Git
   gitStatus: async (id) => (await api.get(`/projects/${id}/git/status`)).data,
   gitInit: (id) => api.post(`/projects/${id}/git/init`),
   gitStage: (id, paths = []) => api.post(`/projects/${id}/git/stage`, { paths }),
@@ -120,4 +123,10 @@ export const useProjectStore = create((set) => ({
   gitPush: async (id) => (await api.post(`/projects/${id}/git/push`)).data,
   gitPull: async (id) => (await api.post(`/projects/${id}/git/pull`)).data,
 
+  // Members / sharing
+  getMembers: async (id) => (await api.get(`/projects/${id}/members`)).data,
+  addMember: async (id, username, role) =>
+    (await api.post(`/projects/${id}/members`, { username, role })).data.member,
+  updateMember: (id, userId, role) => api.patch(`/projects/${id}/members/${userId}`, { role }),
+  removeMember: (id, userId) => api.delete(`/projects/${id}/members/${userId}`),
 }));

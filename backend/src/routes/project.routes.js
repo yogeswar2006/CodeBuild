@@ -2,6 +2,7 @@ import express from "express";
 import projectController from "../controllers/project.controller.js";
 import ProtectedRoute from "../middlewares/auth.middleware.js";
 import gitController from "../controllers/git.controller.js";
+import memberController from "../controllers/member.controller.js";
 
 const router = express.Router();
 router.use(ProtectedRoute);
@@ -39,5 +40,13 @@ router.post("/:projectId/git/commit", gitController.commit);
 router.put("/:projectId/git/remote", gitController.setRemote);
 router.post("/:projectId/git/push", gitController.push);
 router.post("/:projectId/git/pull", gitController.pull);
+
+
+
+
+router.get("/:projectId/members", memberController.list);
+router.post("/:projectId/members", memberController.add);
+router.patch("/:projectId/members/:userId", memberController.update);
+router.delete("/:projectId/members/:userId", memberController.remove);
 
 export default router;

@@ -4,23 +4,23 @@ import prisma from "../lib/prisma.js";
 import { safeResolve } from "../lib/workspace.js";
 import { getGithubToken } from "../lib/github.js";
 import { git, isRepo, parseStatus, GITHUB_URL } from "../lib/git.js";
+import { getAccess, can } from "../lib/access.js";
 
 const bad = (message) => Object.assign(new Error(message), { status: 400 });
 
 // Wraps each handler: auth ownership, resolve the project folder, catch errors.
-const handle = (fn, fallback) => async (req, res) => {
+
+const handle = (fn, fallback, min = "VIEWER") => async (req, res) => {
   try {
     const { projectId } = req.params;
-    const owned = await prisma.project.findFirst({
-      where: { id: projectId, ownerId: req.user.id },
-      select: { id: true },
-    });
-    if (!owned) return res.status(404).json({ message: "Project not found" });
+    const access = await getAccess(projectId, req.user.id);
+    if (!access) return res.status(404).json({ message: "Project not found" });
+    if (!can(access, min)) return res.status(403).json({ message: "You don't have permission to do that" });
 
     const dir = await safeResolve(projectId);
-    res.json(await fn({ req, dir, projectId }));
+    res.json(await fn({ req, dir, projectId, access }));
   } catch (error) {
-    if (error.status === 400) return res.status(400).json({ message: error.message });
+    if (error.status) return res.status(error.status).json({ message: error.message });
     console.error(fallback, error);
     res.status(500).json({ message: fallback });
   }

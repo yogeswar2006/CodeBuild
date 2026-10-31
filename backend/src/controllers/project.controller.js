@@ -1,28 +1,31 @@
-import prisma from "../lib/prisma.js"
+import prisma from "../lib/prisma.js";
 import fs from "fs/promises";
 import path from "path";
 import {
   createWorkspace, deleteWorkspace, readTree, safeResolve,
 } from "../lib/workspace.js";
 import { searchProject, replaceInProject } from "../lib/search.js";
+import { getAccess, can } from "../lib/access.js";
 
+// Throws 404 if the user has no access, 403 if their role is too low.
+// Always call it inside a try block so `fail` can turn the error into a response.
+const need = async (projectId, userId, min = "VIEWER") => {
+  const access = await getAccess(projectId, userId);
+  if (!access) throw Object.assign(new Error("Project not found"), { status: 404 });
+  if (!can(access, min))
+    throw Object.assign(new Error("You don't have permission to do that"), { status: 403 });
+  return access;
+};
 
-// ownership check used by every file route
-const ownsProject = (projectId, userId) =>
-  prisma.project.findFirst({
-    where: { id: projectId, ownerId: userId },
-    select: { id: true },
-  });
-
-  const fail = (res, error, msg) => {
-     if (error.status === 400) return res.status(400).json({ message: error.message });
-  // if (error.status === 400) return res.status(400).json({ message: "Invalid path" });
+const fail = (res, error, msg) => {
+  if (error.status) return res.status(error.status).json({ message: error.message });
   if (error.code === "ENOENT") return res.status(404).json({ message: "Not found" });
   if (error.code === "EEXIST") return res.status(409).json({ message: "Already exists" });
   console.error(msg, error);
   return res.status(500).json({ message: msg });
 };
 
+/* ---------------------------- Projects ---------------------------- */
 
 const createProject = async (req, res) => {
   try {
@@ -51,154 +54,106 @@ const createProject = async (req, res) => {
   } catch (error) {
     return fail(res, error, "Failed to create project");
   }
-};//done
+};
 
 const getAllCurrentUserProjects = async (req, res) => {
   try {
-    const projects = await prisma.project.findMany({
-      where: {
-        ownerId: req.user.id
-      },
-      orderBy: {
-        updatedAt: 'desc'
-      }
-    });
-
-    return res.status(200).json({
-      message: 'Projects fetched successfully',
-      projects
+    const [owned, shared] = await Promise.all([
+      prisma.project.findMany({ where: { ownerId: req.user.id }, orderBy: { updatedAt: "desc" } }),
+      prisma.projectMember.findMany({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: "desc" },
+        include: { project: { include: { owner: { select: { username: true } } } } },
+      }),
+    ]);
+    return res.json({
+      message: "Projects fetched successfully",
+      projects: owned.map((p) => ({ ...p, role: "OWNER" })),
+      shared: shared.map((m) => ({ ...m.project, role: m.role, ownerName: m.project.owner.username })),
     });
   } catch (error) {
-    console.error('Get projects error:', error);
-
-    return res.status(500).json({
-      message: 'Failed to fetch projects'
-    });
+    return fail(res, error, "Failed to fetch projects");
   }
 };
 
 const getProjectById = async (req, res) => {
   try {
-    const { projectId: id } = req.params;
-
-    const project = await prisma.project.findFirst({
-      where: {
-        id,
-        ownerId: req.user.id
-      }
-    });
-
-    if (!project) {
-      return res.status(404).json({
-        message: 'Project not found'
-      });
-    }
-
-    return res.status(200).json({
-      message: 'Project fetched successfully',
-      project
-    });
+    const role = await need(req.params.projectId, req.user.id, "VIEWER");
+    const project = await prisma.project.findUnique({ where: { id: req.params.projectId } });
+    return res.json({ message: "Project fetched successfully", project: { ...project, role } });
   } catch (error) {
-    console.error('Get project error:', error);
-
-    return res.status(500).json({
-      message: 'Failed to fetch project'
-    });
+    return fail(res, error, "Failed to fetch project");
   }
 };
 
+// Owner only (the query filters on ownerId)
 const updateProject = async (req, res) => {
   try {
-    const { projectId: id  } = req.params;
+    const { projectId: id } = req.params;
     const { name, description } = req.body;
 
-    if (name === undefined && description === undefined) {
-      return res.status(400).json({
-        message: 'Provide at least one field to update'
-      });
-    }
+    if (name === undefined && description === undefined)
+      return res.status(400).json({ message: "Provide at least one field to update" });
 
     const data = {};
 
     if (name !== undefined) {
-      if (typeof name !== 'string' || !name.trim()) {
-        return res.status(400).json({
-          message: 'Project name cannot be empty'
-        });
-      }
-
+      if (typeof name !== "string" || !name.trim())
+        return res.status(400).json({ message: "Project name cannot be empty" });
       data.name = name.trim();
     }
 
     if (description !== undefined) {
-      if (
-        description !== null &&
-        typeof description !== 'string'
-      ) {
-        return res.status(400).json({
-          message: 'Description must be a string or null'
-        });
-      }
-
-      data.description =
-        typeof description === 'string'
-          ? description.trim() || null
-          : null;
+      if (description !== null && typeof description !== "string")
+        return res.status(400).json({ message: "Description must be a string or null" });
+      data.description = typeof description === "string" ? description.trim() || null : null;
     }
 
     const result = await prisma.project.updateMany({
-      where: {
-        id,
-        ownerId: req.user.id
-      },
-      data
+      where: { id, ownerId: req.user.id },
+      data,
     });
+    if (result.count === 0) return res.status(404).json({ message: "Project not found" });
 
-    if (result.count === 0) {
-      return res.status(404).json({
-        message: 'Project not found'
-      });
-    }
-
-    const project = await prisma.project.findFirst({
-      where: {
-        id,
-        ownerId: req.user.id
-      }
-    });
-
-    return res.status(200).json({
-      message: 'Project updated successfully',
-      project
-    });
+    const project = await prisma.project.findFirst({ where: { id, ownerId: req.user.id } });
+    return res.status(200).json({ message: "Project updated successfully", project });
   } catch (error) {
-    console.error('Update project error:', error);
-
-    return res.status(500).json({
-      message: 'Failed to update project'
-    });
+    return fail(res, error, "Failed to update project");
   }
 };
 
-
+// Owner only (the query filters on ownerId)
 const deleteProject = async (req, res) => {
   try {
-    const { projectId: id  } = req.params;
+    const { projectId: id } = req.params;
     const result = await prisma.project.deleteMany({
       where: { id, ownerId: req.user.id },
     });
-    if (result.count === 0)
-      return res.status(404).json({ message: "Project not found" });
+    if (result.count === 0) return res.status(404).json({ message: "Project not found" });
 
     await deleteWorkspace(id);
     return res.status(200).json({ message: "Project deleted successfully" });
   } catch (error) {
     return fail(res, error, "Failed to delete project");
   }
-}; // done
+};
 
+/* ------------------------- Files and folders ------------------------- */
 
-// POST /projects/:projectId/nodes   body: { path, type, content? }
+// GET /projects/:projectId/tree          (VIEWER)
+const getProjectHeirarchy = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    await need(projectId, req.user.id, "VIEWER");
+
+    const tree = await readTree(await safeResolve(projectId));
+    return res.status(200).json({ message: "Project hierarchy fetched successfully", tree });
+  } catch (error) {
+    return fail(res, error, "Failed to fetch project hierarchy");
+  }
+};
+
+// POST /projects/:projectId/nodes        (EDITOR)   body: { path, type, content? }
 const createFileNode = async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -208,8 +163,8 @@ const createFileNode = async (req, res) => {
       return res.status(400).json({ message: "Valid path and type are required" });
     if (typeof content !== "string")
       return res.status(400).json({ message: "Content must be a string" });
-    if (!(await ownsProject(projectId, req.user.id)))
-      return res.status(404).json({ message: "Project not found" });
+
+    await need(projectId, req.user.id, "EDITOR");
 
     const full = await safeResolve(projectId, rel);
 
@@ -223,30 +178,13 @@ const createFileNode = async (req, res) => {
   } catch (error) {
     return fail(res, error, "Failed to create node");
   }
-};// done
+};
 
-
-// GET /projects/:projectId/tree
-const getProjectHeirarchy = async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    if (!(await ownsProject(projectId, req.user.id)))
-      return res.status(404).json({ message: "Project not found" });
-
-    const tree = await readTree(await safeResolve(projectId));
-    return res.status(200).json({ message: "Project hierarchy fetched successfully", tree });
-  } catch (error) {
-    return fail(res, error, "Failed to fetch project hierarchy");
-  }
-}; //done
-
-
-// GET /projects/:projectId/file?path=src/App.jsx
+// GET /projects/:projectId/file?path=src/App.jsx          (VIEWER)
 const getFileContent = async (req, res) => {
   try {
     const { projectId } = req.params;
-    if (!(await ownsProject(projectId, req.user.id)))
-      return res.status(404).json({ message: "Project not found" });
+    await need(projectId, req.user.id, "VIEWER");
 
     const full = await safeResolve(projectId, req.query.path);
     const stat = await fs.stat(full);
@@ -262,9 +200,9 @@ const getFileContent = async (req, res) => {
   } catch (error) {
     return fail(res, error, "Failed to fetch file content");
   }
-}; // done
+};
 
-// PUT /projects/:projectId/file   body: { path, content }
+// PUT /projects/:projectId/file          (EDITOR)   body: { path, content }
 const updateFileContent = async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -272,8 +210,8 @@ const updateFileContent = async (req, res) => {
 
     if (typeof content !== "string")
       return res.status(400).json({ message: "Content must be a string" });
-    if (!(await ownsProject(projectId, req.user.id)))
-      return res.status(404).json({ message: "Project not found" });
+
+    await need(projectId, req.user.id, "EDITOR");
 
     const full = await safeResolve(projectId, rel);
     await fs.stat(full); // must already exist (ENOENT -> 404)
@@ -283,15 +221,15 @@ const updateFileContent = async (req, res) => {
   } catch (error) {
     return fail(res, error, "Failed to save file");
   }
-};//done
+};
 
-// PATCH /projects/:projectId/nodes   body: { from, to }
+// PATCH /projects/:projectId/nodes       (EDITOR)   body: { from, to }
 const renameNode = async (req, res) => {
   try {
     const { projectId } = req.params;
     const { from, to } = req.body;
-    if (!(await ownsProject(projectId, req.user.id)))
-      return res.status(404).json({ message: "Project not found" });
+
+    await need(projectId, req.user.id, "EDITOR");
 
     const src = await safeResolve(projectId, from);
     const dst = await safeResolve(projectId, to);
@@ -301,14 +239,13 @@ const renameNode = async (req, res) => {
   } catch (error) {
     return fail(res, error, "Failed to rename");
   }
-}; //done
+};
 
-// DELETE /projects/:projectId/nodes?path=src/old.js
+// DELETE /projects/:projectId/nodes?path=src/old.js      (EDITOR)
 const deleteNode = async (req, res) => {
   try {
     const { projectId } = req.params;
-    if (!(await ownsProject(projectId, req.user.id)))
-      return res.status(404).json({ message: "Project not found" });
+    await need(projectId, req.user.id, "EDITOR");
 
     const full = await safeResolve(projectId, req.query.path);
     if (full === (await safeResolve(projectId)))
@@ -319,9 +256,9 @@ const deleteNode = async (req, res) => {
   } catch (error) {
     return fail(res, error, "Failed to delete");
   }
-};//done
+};
 
-
+/* ------------------------ Search and replace ------------------------ */
 
 const searchOptions = (body) => ({
   query: body.query,
@@ -330,12 +267,11 @@ const searchOptions = (body) => ({
   wholeWord: !!body.wholeWord,
 });
 
-// POST /projects/:projectId/search   body: { query, isRegex, caseSensitive, wholeWord }
+// POST /projects/:projectId/search       (VIEWER)
 const searchFiles = async (req, res) => {
   try {
     const { projectId } = req.params;
-    if (!(await ownsProject(projectId, req.user.id)))
-      return res.status(404).json({ message: "Project not found" });
+    await need(projectId, req.user.id, "VIEWER");
 
     await safeResolve(projectId); // makes sure the folder exists
     const out = await searchProject(projectId, searchOptions(req.body));
@@ -345,7 +281,7 @@ const searchFiles = async (req, res) => {
   }
 };
 
-// POST /projects/:projectId/replace   body: { ...search options, replacement, paths? }
+// POST /projects/:projectId/replace      (EDITOR)   body: { ...search options, replacement, paths? }
 const replaceInFiles = async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -355,8 +291,7 @@ const replaceInFiles = async (req, res) => {
         (!Array.isArray(paths) || !paths.every((p) => typeof p === "string")))
       return res.status(400).json({ message: "paths must be an array of strings" });
 
-    if (!(await ownsProject(projectId, req.user.id)))
-      return res.status(404).json({ message: "Project not found" });
+    await need(projectId, req.user.id, "EDITOR");
 
     await safeResolve(projectId);
     const out = await replaceInProject(projectId, searchOptions(req.body), replacement, paths);
@@ -366,10 +301,18 @@ const replaceInFiles = async (req, res) => {
   }
 };
 
-
 export default {
-  createProject, getAllCurrentUserProjects,
-  getProjectById, updateProject, deleteProject,
-  getProjectHeirarchy, createFileNode,getFileContent,updateFileContent,renameNode,deleteNode,
-  searchFiles , replaceInFiles
-}
+  createProject,
+  getAllCurrentUserProjects,
+  getProjectById,
+  updateProject,
+  deleteProject,
+  getProjectHeirarchy,
+  createFileNode,
+  getFileContent,
+  updateFileContent,
+  renameNode,
+  deleteNode,
+  searchFiles,
+  replaceInFiles,
+};

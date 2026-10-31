@@ -63,11 +63,14 @@ const safeStorageSet = (key, value) => {
 export default function Dashboard() {
   const ws = useWorkspace();
   const { logout } = useAuthStore();
-
+  const showTerminal = ws.projectId && ws.canEdit;
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(safeStorageGet(STORAGE_KEY));
     return clamp(saved || DEFAULT_WIDTH);
   });
+
+  const canEditRef = useRef(false);
+  canEditRef.current = ws.canEdit;
 
   const [toggleSettings, setToggleSettings] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -87,7 +90,7 @@ export default function Dashboard() {
   const termStartY = useRef(0);
   const termStartH = useRef(TERM_DEFAULT);
 
-  const handleSettings = () => {``
+  const handleSettings = () => {
     setToggleSettings(!toggleSettings);
   }
 
@@ -104,11 +107,15 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    if (!ws.canEdit) setTerminalOpen(false);
+  }, [ws.canEdit, ws.projectId]);
+
+  useEffect(() => {
     const onKey = (e) => {
       if (e.ctrlKey && !e.altKey && !e.metaKey && e.code === "Backquote") {
         e.preventDefault();
         e.stopPropagation(); // keep xterm from sending it to the shell as a NUL character
-        setTerminalOpen((v) => !v);
+        if (canEditRef.current) setTerminalOpen((v) => !v);
       }
     };
     // capture phase: runs before Monaco or xterm can swallow the key
@@ -243,7 +250,6 @@ export default function Dashboard() {
         >
           <GitBranch size={21} strokeWidth={1.5} />
         </button>
-
 
         <GithubConnect />
 
@@ -434,14 +440,16 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 text-xs text-[#858585]">
             <Code2 size={14} className="text-[#007acc]" />
             <span>{ws.project?.name || "Welcome"}</span>
-            <button
-              type="button"
-              title="Toggle terminal"
-              onClick={() => setTerminalOpen((v) => !v)}
-              className="ml-auto flex h-full items-center px-3 text-[#858585] hover:text-white"
-            >
-              <TerminalSquare size={15} />
-            </button>
+            {ws.canEdit && (
+              <button
+                type="button"
+                title="Toggle terminal"
+                onClick={() => setTerminalOpen((v) => !v)}
+                className="ml-auto flex h-full items-center px-3 text-[#858585] hover:text-white"
+              >
+                <TerminalSquare size={15} />
+              </button>
+            )}
           </div>
         </header>
 
@@ -452,7 +460,7 @@ export default function Dashboard() {
           </div>
 
           {/* Drag handle: only shown while the terminal is open */}
-          {ws.projectId && terminalOpen && (
+          {ws.projectId && showTerminal && terminalOpen && (
             <div
               role="separator"
               aria-label="Resize terminal"
@@ -465,7 +473,7 @@ export default function Dashboard() {
           )}
 
           {/* Kept mounted (just collapsed) so the shell session survives toggling */}
-          {ws.projectId && (
+          {ws.projectId && showTerminal && (
             <div
               className="shrink-0 overflow-hidden"
               style={{ height: terminalOpen ? terminalHeight : 0 }}

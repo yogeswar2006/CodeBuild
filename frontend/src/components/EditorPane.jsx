@@ -124,7 +124,7 @@ const SHORTCUTS = [
   ["Command palette", "F1"],
 ];
 
-function Welcome({ hasProject }) {
+function Welcome({ hasProject,canEdit }) {
   return (
     <div className="flex h-full items-center justify-center overflow-y-auto p-8">
       <div className="w-full max-w-md">
@@ -154,7 +154,7 @@ function Welcome({ hasProject }) {
         </dl>
 
         <p className="mt-8 text-xs leading-5 text-[#6b7280]">
-          Changes are saved automatically after {AUTOSAVE_MS / 1000} seconds without typing.
+         {canEdit ? `Changes are saved automatically after ${AUTOSAVE_MS / 1000} seconds without typing.` : "You have view-only access to this project."}
         </p>
       </div>
     </div>
@@ -178,7 +178,7 @@ export default function EditorPane({ ws }) {
 
   const saveRef = useRef(() => { });
   const buf = ws.buffers[ws.activeId];
-  saveRef.current = () => ws.activeId && ws.save(ws.activeId);
+  saveRef.current = () => ws.canEdit && ws.activeId && ws.save(ws.activeId);
 
   applyRevealRef.current = () => {
     const r = ws.reveal;
@@ -267,7 +267,7 @@ export default function EditorPane({ ws }) {
               value={buf.content}
               onChange={(value) => ws.change(ws.activeId, value ?? "")}
               theme="ayu"
-              options={EDITOR_OPTIONS}
+              options={{ ...EDITOR_OPTIONS, readOnly: !ws.canEdit }}
               beforeMount={configureMonaco}
               onMount={handleMount}
               keepCurrentModel
@@ -279,13 +279,14 @@ export default function EditorPane({ ws }) {
             </div>
           )
         ) : (
-          <Welcome hasProject={Boolean(ws.projectId)} />
+          <Welcome hasProject={Boolean(ws.projectId)} canEdit={ws.canEdit} />
         )}
       </div>
 
       {/* Status bar */}
       <div className="flex h-6 shrink-0 items-center justify-between bg-[#0E4B52] px-3 text-xs text-white/90">
         <span className="truncate">{ws.project?.name || "No project selected"}</span>
+         <span>{ws.role === "VIEWER" && <span className="text-[#F6B94A]">Read-only</span>}</span>
         <span className="flex items-center gap-4">
           {buf && <span>{getLanguage(buf.name)}</span>}
           {statusText && (
