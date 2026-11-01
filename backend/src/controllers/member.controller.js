@@ -1,6 +1,7 @@
 import prisma from "../lib/prisma.js";
 import { getAccess, can } from "../lib/access.js";
 import { kickUser } from "../lib/terminal.js";
+import { kickCollab } from "../lib/collab.js"
 
 const ROLES = ["VIEWER", "EDITOR"];
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -56,6 +57,7 @@ const add = guard("OWNER", async ({ req, projectId }) => {
     create: { projectId, userId: target.id, role, invitedById: req.user.id },
     update: { role },
   });
+   kickCollab(projectId, target.id);  
   if (role === "VIEWER") kickUser(projectId, target.id); // viewers get no terminal
   return { member: { userId: target.id, username: target.username, role } };
 }, "Failed to add member");
@@ -70,6 +72,7 @@ const update = guard("OWNER", async ({ req, projectId }) => {
     data: { role },
   });
   if (!r.count) throw err(404, "Member not found");
+  kickCollab(projectId, req.params.userId);  
   if (role === "VIEWER") kickUser(projectId, req.params.userId);
   return { ok: true };
 }, "Failed to update member");
@@ -81,6 +84,7 @@ const remove = guard("VIEWER", async ({ req, projectId, access }) => {
 
   const r = await prisma.projectMember.deleteMany({ where: { projectId, userId } });
   if (!r.count) throw err(404, "Member not found");
+  kickCollab(projectId, userId);
   kickUser(projectId, userId); // closes their terminal immediately
   return { ok: true };
 }, "Failed to remove member");
