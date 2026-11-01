@@ -1,8 +1,17 @@
-import { useRef,useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { Code2, X } from "lucide-react";
 import { getFileIcon, getLanguage } from "../lib/fileTypes";
 import { AUTOSAVE_MS } from "../hooks/useWorkspace";
+
+
+import * as Y from "yjs";
+import { WebsocketProvider } from "y-websocket";
+import { MonacoBinding } from "y-monaco";
+import { useAuthStore } from "../store/useAuthStore";
+
+const CURSOR_COLORS = ["#FFC247", "#D86CFF", "#4FE3B0", "#FF8A5B", "#7AD7F0", "#F2A3C9", "#B6E35A"];
+const colorFor = (s = "") => CURSOR_COLORS[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % CURSOR_COLORS.length];
 
 /* ---------- Monaco setup (runs once) ---------- */
 
@@ -124,7 +133,7 @@ const SHORTCUTS = [
   ["Command palette", "F1"],
 ];
 
-function Welcome({ hasProject,canEdit }) {
+function Welcome({ hasProject, canEdit }) {
   return (
     <div className="flex h-full items-center justify-center overflow-y-auto p-8">
       <div className="w-full max-w-md">
@@ -154,7 +163,7 @@ function Welcome({ hasProject,canEdit }) {
         </dl>
 
         <p className="mt-8 text-xs leading-5 text-[#6b7280]">
-         {canEdit ? `Changes are saved automatically after ${AUTOSAVE_MS / 1000} seconds without typing.` : "You have view-only access to this project."}
+          {canEdit ? `Changes are saved automatically after ${AUTOSAVE_MS / 1000} seconds without typing.` : "You have view-only access to this project."}
         </p>
       </div>
     </div>
@@ -175,6 +184,10 @@ export default function EditorPane({ ws }) {
   const editorRef = useRef(null);
   const revealedRef = useRef(null);
   const applyRevealRef = useRef(() => { });
+
+  const authUser = useAuthStore((s) => s.authUser); // adjust if your store names it differently
+  const [editor, setEditor] = useState(null);
+  const [collab, setCollab] = useState({ status: "connecting", users: [] });
 
   const saveRef = useRef(() => { });
   const buf = ws.buffers[ws.activeId];
@@ -202,13 +215,71 @@ export default function EditorPane({ ws }) {
   useEffect(() => {
     applyRevealRef.current();
   }, [ws.reveal, ws.activeId, buf?.loaded]);
-  
 
-  const handleMount = (editor, monaco) => {
-  editorRef.current = editor;
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-    saveRef.current();
-  });
+  useEffect(() => {
+  if (!buf?.loaded) {
+    editorRef.current = null;
+    setEditor(null);
+  }
+}, [buf?.loaded]);
+
+  useEffect(() => {
+    const ed = editor;
+    if (!editor || !ed || !buf?.loaded || !ws.projectId || !ws.activeId) return;
+    const model = ed.getModel();
+    if (!model) return;
+
+    setCollab({ status: "connecting", users: [] });
+
+    const name = authUser?.username || "Guest";
+    const doc = new Y.Doc();
+    const provider = new WebsocketProvider(
+      `${import.meta.env.VITE_WS_URL}/collab`,
+      encodeURIComponent(`${ws.projectId}/${ws.activeId}`), // unique room per file
+      doc,
+      { params: { projectId: ws.projectId, path: ws.activeId }, disableBc: true }
+    );
+    provider.awareness.setLocalStateField("user", { name, color: colorFor(name) });
+
+    const binding = new MonacoBinding(doc.getText("content"), model, new Set([ed]), provider.awareness);
+
+    // y-monaco gives each remote cursor a class per client id, we supply the look
+    const style = document.createElement("style");
+    document.head.appendChild(style);
+    const refresh = () => {
+      let css = "";
+      const users = [];
+      provider.awareness.getStates().forEach((s, id) => {
+        if (!s.user) return;
+        users.push({ id, ...s.user, self: id === doc.clientID });
+        if (id === doc.clientID) return;
+        const c = s.user.color;
+        const label = String(s.user.name).replace(/[^\w .-]/g, "");
+        css += `
+        .yRemoteSelection-${id}{background:${c}33}
+        .yRemoteSelectionHead-${id}{position:absolute;border-left:2px solid ${c};height:100%;box-sizing:border-box}
+        .yRemoteSelectionHead-${id}::after{content:"${label}";position:absolute;top:-1.5em;left:-2px;background:${c};color:#170F24;font:600 10px sans-serif;padding:1px 5px;border-radius:3px;white-space:nowrap}`;
+      });
+      style.textContent = css;
+      setCollab((c) => ({ ...c, users }));
+    };
+    provider.awareness.on("change", refresh);
+    provider.on("status", ({ status }) => setCollab((c) => ({ ...c, status })));
+    refresh();
+
+    return () => {
+      provider.awareness.off("change", refresh);
+      binding.destroy();
+      provider.destroy();
+      doc.destroy();
+      style.remove();
+    };
+  }, [editor, ws.projectId, ws.activeId, buf?.loaded, authUser?.username]);
+
+ const handleMount = (ed, monaco) => {
+  editorRef.current = ed;
+  ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveRef.current());
+  setEditor(ed); // a new editor object every mount, so the effect always re-runs
   applyRevealRef.current();
 };
 
@@ -230,8 +301,8 @@ export default function EditorPane({ ws }) {
                 onClick={() => ws.setActiveId(id)}
                 onAuxClick={() => ws.closeTab(id)}
                 className={`group flex min-w-[120px] max-w-[220px] cursor-pointer items-center gap-2 border-r border-[#1e1e1e] px-3 text-[13px] ${active
-                    ? "border-t-2 border-t-[#7BE5C4] bg-[#1e1e1e] text-white"
-                    : "border-t-2 border-t-transparent bg-[#2d2d2d] text-[#9da5b4] hover:bg-[#2a2d2e]"
+                  ? "border-t-2 border-t-[#7BE5C4] bg-[#1e1e1e] text-white"
+                  : "border-t-2 border-t-transparent bg-[#2d2d2d] text-[#9da5b4] hover:bg-[#2a2d2e]"
                   }`}
               >
                 <Icon size={15} style={{ color }} className="shrink-0" />
@@ -261,13 +332,11 @@ export default function EditorPane({ ws }) {
         {buf ? (
           buf.loaded ? (
             <Editor
-              // One model per file: undo history, cursor and scroll survive tab switches
               path={`${ws.projectId}/${ws.activeId}`}
               language={getLanguage(buf.name)}
-              value={buf.content}
-              onChange={(value) => ws.change(ws.activeId, value ?? "")}
+              defaultValue=""
               theme="ayu"
-              options={{ ...EDITOR_OPTIONS, readOnly: !ws.canEdit }}
+              options={{ ...EDITOR_OPTIONS, readOnly: !ws.canEdit || collab.status !== "connected" }}
               beforeMount={configureMonaco}
               onMount={handleMount}
               keepCurrentModel
@@ -285,16 +354,24 @@ export default function EditorPane({ ws }) {
 
       {/* Status bar */}
       <div className="flex h-6 shrink-0 items-center justify-between bg-[#0E4B52] px-3 text-xs text-white/90">
-        <span className="truncate">{ws.project?.name || "No project selected"}</span>
-         <span>{ws.role === "VIEWER" && <span className="text-[#F6B94A]">Read-only</span>}</span>
         <span className="flex items-center gap-4">
           {buf && <span>{getLanguage(buf.name)}</span>}
-          {statusText && (
-            <span className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusColor }} />
-              {statusText}
+          {buf && (
+            <span className="flex items-center gap-2">
+              <span className="flex -space-x-1.5">
+                {collab.users.map((u) => (
+                  <span key={u.id} title={u.self ? `${u.name} (you)` : u.name}
+                    className="grid h-4 w-4 place-items-center rounded-full text-[9px] font-bold text-[#170F24] ring-1 ring-[#0E4B52]"
+                    style={{ background: u.color }}>
+                    {u.name[0]?.toUpperCase()}
+                  </span>
+                ))}
+              </span>
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: collab.status === "connected" ? "#7BE5C4" : "#F6B94A" }} />
+              {collab.status === "connected" ? "Live" : "Connecting..."}
             </span>
           )}
+          {ws.role === "VIEWER" && <span className="text-[#F6B94A]">Read-only</span>}
         </span>
       </div>
     </div>

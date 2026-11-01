@@ -6,6 +6,11 @@ import cookieParser from 'cookie-parser'
 import projectRouter from "./routes/project.routes.js"
 import cors from "cors"
 import { attachTerminal } from "./lib/terminal.js"
+
+import { attachCollab } from "./lib/collab.js";
+
+
+
 const app= express();
 
 
@@ -44,4 +49,6 @@ const PORT = process.env.PORT || 5000;
 const server=app.listen(PORT, "0.0.0.0",() => {
   console.log(`Server running on port ${PORT}`);
 });
-attachTerminal(server)
+attachTerminal(server);
+
+attachCollab(server);

@@ -6,6 +6,7 @@ import {
 } from "../lib/workspace.js";
 import { searchProject, replaceInProject } from "../lib/search.js";
 import { getAccess, can } from "../lib/access.js";
+import { hasRoom, closeRoomsUnder } from "../lib/collab.js";
 
 // Throws 404 if the user has no access, 403 if their role is too low.
 // Always call it inside a try block so `fail` can turn the error into a response.
@@ -213,6 +214,9 @@ const updateFileContent = async (req, res) => {
 
     await need(projectId, req.user.id, "EDITOR");
 
+    if (await hasRoom(projectId, rel))
+       return res.status(409).json({ message: "This file is being edited live" });
+
     const full = await safeResolve(projectId, rel);
     await fs.stat(full); // must already exist (ENOENT -> 404)
     await fs.writeFile(full, content);
@@ -235,6 +239,7 @@ const renameNode = async (req, res) => {
     const dst = await safeResolve(projectId, to);
     await fs.mkdir(path.dirname(dst), { recursive: true });
     await fs.rename(src, dst);
+    closeRoomsUnder(projectId, from);
     return res.status(200).json({ message: "Renamed successfully" });
   } catch (error) {
     return fail(res, error, "Failed to rename");
@@ -252,6 +257,7 @@ const deleteNode = async (req, res) => {
       return res.status(400).json({ message: "Cannot delete project root" });
 
     await fs.rm(full, { recursive: true });
+    closeRoomsUnder(projectId, req.query.path);
     return res.status(200).json({ message: "Deleted successfully" });
   } catch (error) {
     return fail(res, error, "Failed to delete");

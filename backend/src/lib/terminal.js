@@ -81,7 +81,7 @@ export function attachTerminal(server) {
   server.on("upgrade", async (req, socket, head) => {
     try {
       const url = new URL(req.url, "http://localhost");
-      if (url.pathname !== "/terminal") return socket.destroy();
+      if (url.pathname !== "/terminal") return ;
 
       if (req.headers.origin !== process.env.CLIENT_URL)
         return reject(socket, 403, "Forbidden", `bad origin ${req.headers.origin}`);
