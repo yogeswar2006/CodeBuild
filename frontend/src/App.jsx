@@ -7,6 +7,7 @@ import LoginPage from './pages/loginPage';
 import Dashboard from './pages/dashboard';
 import RegisterPage from './pages/registerPage';
 import { Navigate,Routes,Route } from 'react-router';
+import Landing from './pages/landingPage';
 
 
 
@@ -24,6 +25,7 @@ export default function App() {
 
     <div >
       <Routes>
+        <Route path='/' element={<Landing/>} />
         <Route path="/dashboard" element={authUser ? <Dashboard /> : <Navigate to={"/login"} />} />
         <Route path="/login" element={!authUser ? <LoginPage /> : <Navigate to={"/dashboard"} />} />
         <Route path="/register" element={!authUser ? <RegisterPage /> : <Navigate to={"/dashboard"} />} />
