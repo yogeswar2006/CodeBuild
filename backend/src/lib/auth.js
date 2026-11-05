@@ -1,14 +1,31 @@
 import jwt from "jsonwebtoken";
 import "dotenv/config";
 import prisma from "./prisma.js";
+import { cached } from "./cache.js";
 
-// Same checks as your middleware: verify the JWT, then load the user from the DB.
 export async function getUserFromToken(token) {
   if (!token) return null;
+
+  let decoded;
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    return await prisma.user.findUnique({ where: { id: decoded.id } });
-  } catch {
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch (e) {
+    console.log("JWT rejected:", e.message);
+    return null;
+  }
+
+  try {
+    const user = await cached(`user:${decoded.id}`, 60, () =>
+      prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: { id: true, username: true, email: true, createdAt: true, updatedAt: true },
+      }),
+      { skipNull: true }
+    );
+    if (!user) console.log("JWT valid, but no user row for id", decoded.id);
+    return user;
+  } catch (e) {
+    console.error("User lookup failed:", e.message);
     return null;
   }
 }
