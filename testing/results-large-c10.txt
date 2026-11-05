@@ -1,6 +1,0 @@
-endpoint	conn	req/s	p50ms	p97.5ms	p99ms	maxms	non2xx	errors
-list projects	10	1522	6	9	10	40	0	0
-file tree	10	941	10	13	14	30	0	0
-read file	10	1504	6	10	11	28	0	0
-git status	10	282	35	44	45	54	0	0
-search	10	409	24	28	30	43	0	0
