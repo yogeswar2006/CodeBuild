@@ -2,7 +2,8 @@ import fs from "fs/promises";
 import path from "path";
 
 const ROOT = path.resolve(process.env.WORKSPACES_DIR || "./workspaces");
-const IGNORED = new Set(["node_modules", ".git"]);
+
+const IGNORED = new Set(["node_modules", ".git", ".npm-cache"]);
 
 export const projectDir = (projectId) => path.join(ROOT, projectId);
 

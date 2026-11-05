@@ -8,6 +8,8 @@ import { searchProject, replaceInProject } from "../lib/search.js";
 import { getAccess, can } from "../lib/access.js";
 import { hasRoom, closeRoomsUnder } from "../lib/collab.js";
 
+import { invalidatePattern } from "../lib/cache.js";
+
 // Throws 404 if the user has no access, 403 if their role is too low.
 // Always call it inside a try block so `fail` can turn the error into a response.
 const need = async (projectId, userId, min = "VIEWER") => {
@@ -131,6 +133,8 @@ const deleteProject = async (req, res) => {
       where: { id, ownerId: req.user.id },
     });
     if (result.count === 0) return res.status(404).json({ message: "Project not found" });
+
+    await invalidatePattern(`access:${id}:*`);
 
     await deleteWorkspace(id);
     return res.status(200).json({ message: "Project deleted successfully" });

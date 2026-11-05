@@ -2,6 +2,8 @@ import prisma from "../lib/prisma.js";
 import { getAccess, can } from "../lib/access.js";
 import { kickUser } from "../lib/terminal.js";
 import { kickCollab } from "../lib/collab.js"
+import { invalidate } from "../lib/cache.js";
+import { accessKey } from "../lib/access.js";
 
 const ROLES = ["VIEWER", "EDITOR"];
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -57,6 +59,10 @@ const add = guard("OWNER", async ({ req, projectId }) => {
     create: { projectId, userId: target.id, role, invitedById: req.user.id },
     update: { role },
   });
+
+  // remove cached keys
+  await invalidate(accessKey(projectId,target.id));
+
    kickCollab(projectId, target.id);  
   if (role === "VIEWER") kickUser(projectId, target.id); // viewers get no terminal
   return { member: { userId: target.id, username: target.username, role } };
@@ -72,6 +78,9 @@ const update = guard("OWNER", async ({ req, projectId }) => {
     data: { role },
   });
   if (!r.count) throw err(404, "Member not found");
+
+  await invalidate(accessKey(projectId,req.params.userId));
+
   kickCollab(projectId, req.params.userId);  
   if (role === "VIEWER") kickUser(projectId, req.params.userId);
   return { ok: true };
@@ -84,6 +93,10 @@ const remove = guard("VIEWER", async ({ req, projectId, access }) => {
 
   const r = await prisma.projectMember.deleteMany({ where: { projectId, userId } });
   if (!r.count) throw err(404, "Member not found");
+  
+  // in remove, after the deleteMany check:
+  await invalidate(accessKey(projectId, userId));
+
   kickCollab(projectId, userId);
   kickUser(projectId, userId); // closes their terminal immediately
   return { ok: true };

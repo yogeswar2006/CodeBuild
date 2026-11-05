@@ -2,7 +2,8 @@ import fs from "fs/promises";
 import path from "path";
 import { projectDir } from "./workspace.js";
 
-const IGNORED = new Set(["node_modules", ".git", "dist", "build", ".next"]);
+const IGNORED = new Set(["node_modules", ".git", "dist", "build", ".next",".npm-cache"]);
+
 const MAX_FILE_SIZE = 1024 * 1024; // skip files over 1 MB
 const MAX_MATCHES = 1000;
 

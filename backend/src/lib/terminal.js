@@ -58,6 +58,8 @@ async function ensureContainer(name, dir) {
       "--read-only",                                       // image filesystem is immutable
       "--tmpfs", "/tmp:rw,exec,size=512m",
       "-e", "HOME=/tmp",
+  
+      "-e", "npm_config_cache=/workspace/.npm-cache",
       "-v", `${dir}:/workspace`,
       "-w", "/workspace",
       IMAGE, "sleep", "infinity",
