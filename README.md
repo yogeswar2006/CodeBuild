@@ -1,6 +1,6 @@
 <div align="center">
 
-<img ![alt text](image.png) alt="CodeSpace banner" width="100%" />
+<img src="https://res.cloudinary.com/drtqkna4o/image/upload/v1794065494/Features_attgsy.png" alt="CodeSpace banner" width="100%" />
 
 # CodeSpace
 
