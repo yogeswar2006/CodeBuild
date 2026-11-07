@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://placehold.co/1200x400/170F24/FFC247?text=CodeSpace+Banner" alt="CodeSpace banner" width="100%" />
+<img ![alt text](image.png) alt="CodeSpace banner" width="100%" />
 
 # CodeSpace
 
@@ -13,7 +13,7 @@
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com)
 [![License](https://img.shields.io/badge/license-MIT-green)](#license)
 
-[Live demo](https://your-app.vercel.app) · [Report a bug](https://github.com/your-username/codespace/issues) · [Request a feature](https://github.com/your-username/codespace/issues)
+[Live demo](https://your-app.vercel.app) · [Report a bug](https://github.com/yogeswar2006/codespace/issues) · [Request a feature](https://github.com/yogeswar2006/codespace/issues)
 
 </div>
 
@@ -47,15 +47,15 @@ CodeSpace is a VS Code style editor that runs in the browser. Each project is a 
 
 | Editor | Terminal |
 |---|---|
-| ![Editor](https://placehold.co/600x360/0A0E14/BFBDB6?text=Editor) | ![Terminal](https://placehold.co/600x360/0A0E14/4FE3B0?text=Sandboxed+Terminal) |
+| ![Editor](https://res.cloudinary.com/drtqkna4o/image/upload/v1794065495/code_editor_zqhq60.png) | ![Terminal](https://res.cloudinary.com/drtqkna4o/image/upload/v1794065496/terminal_w6tztb.png) |
 
 | Live collaboration | Source control |
 |---|---|
-| ![Collaboration](https://placehold.co/600x360/0A0E14/D86CFF?text=Live+Collaboration) | ![Git](https://placehold.co/600x360/0A0E14/FFC247?text=Source+Control) |
+| ![Collaboration](https://res.cloudinary.com/drtqkna4o/image/upload/v1794065495/code_editor_zqhq60.png) | ![Git](https://res.cloudinary.com/drtqkna4o/image/upload/v1794065495/source_control_q8ulvu.png) |
 
 | Project search | Landing page |
 |---|---|
-| ![Search](https://placehold.co/600x360/0A0E14/79B8FF?text=Search+and+Replace) | ![Landing](https://placehold.co/600x360/170F24/FFC247?text=Landing+Page) |
+| ![Search](https://res.cloudinary.com/drtqkna4o/image/upload/v1794065494/search_irplrz.png) | ![Landing](https://res.cloudinary.com/drtqkna4o/image/upload/v1794065495/Landinf_page_upzdm7.png) |
 
 ## Features
 
@@ -144,7 +144,6 @@ flowchart LR
   R -- "push / pull / OAuth" --> GH
 ```
 
-An editable diagram is in [`docs/codebuild-architecture.drawio`](docs/codebuild-architecture.drawio) (open it at [app.diagrams.net](https://app.diagrams.net)).
 
 **How a few things work**
 
@@ -193,7 +192,7 @@ An editable diagram is in [`docs/codebuild-architecture.drawio`](docs/codebuild-
 <!-- ### Option A: Docker Compose (backend stack) -->
 
 <!-- ```bash
-git clone https://github.com/your-username/codespace.git
+git clone https://github.com/yogeswar2006/CodeBuild.git
 cd codespace
 
 # 1. Build the sandbox image used for terminals
@@ -382,6 +381,6 @@ Distributed under the MIT License. Add a `LICENSE` file to the repository root b
 
 <div align="center">
 
-Built by [your-name](https://github.com/your-username)
+Built by [Yogeswar](https://github.com/yogeswar2006)
 
 </div>
